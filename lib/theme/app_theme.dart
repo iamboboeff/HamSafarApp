@@ -30,6 +30,15 @@ abstract final class AppTheme {
       // geometric letterforms, strong Cyrillic coverage. Bundled locally
       // (assets/fonts/Manrope.ttf) so it loads offline on first launch.
       fontFamily: 'Manrope',
+      // iOS gets the native slide-from-right transition with the
+      // interactive swipe-back gesture. Android/macOS/etc. keep the
+      // platform default (Material zoom on Android).
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        },
+      ),
     );
 
     return base.copyWith(
