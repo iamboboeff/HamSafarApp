@@ -26,6 +26,10 @@ abstract final class AppTheme {
       scaffoldBackgroundColor: hs.background,
       splashFactory: InkRipple.splashFactory,
       extensions: [hs],
+      // Manrope mirrors SwiftUI's `Font.system(design: .rounded)` — soft
+      // geometric letterforms, strong Cyrillic coverage. Bundled locally
+      // (assets/fonts/Manrope.ttf) so it loads offline on first launch.
+      fontFamily: 'Manrope',
     );
 
     return base.copyWith(
