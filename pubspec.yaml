@@ -21,12 +21,15 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
   flutter_lints: ^6.0.0
+  flutter_native_splash: ^2.4.6
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/brand/
   fonts:
     - family: Manrope
       fonts:
@@ -38,3 +41,26 @@ flutter:
           weight: 600
         - asset: assets/fonts/Manrope.ttf
           weight: 700
+
+# Generate Android + iOS launcher icons from one source.
+# Run: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/brand/icon.png"
+  remove_alpha_ios: true
+  adaptive_icon_background: "#149ECC"
+  adaptive_icon_foreground: "assets/brand/icon_foreground.png"
+
+# Generate native splash screens (replaces Flutter default + the blue
+# iOS storyboard placeholder). Run: dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#149ECC"
+  image: assets/brand/splash_logo.png
+  color_dark: "#0D1421"
+  image_dark: assets/brand/splash_logo_dark.png
+  android_12:
+    color: "#149ECC"
+    image: assets/brand/icon_foreground.png
+    color_dark: "#0D1421"
+    image_dark: assets/brand/icon_foreground.png
