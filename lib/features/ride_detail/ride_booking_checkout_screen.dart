@@ -1,0 +1,300 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/supabase/supabase_service.dart';
+import '../../domain/date_formatter.dart';
+import '../../domain/ride_booking.dart';
+import '../../models/ride.dart';
+import '../../state/app_state.dart';
+import '../../theme/app_colors.dart';
+import '../../theme/app_text.dart';
+import '../../widgets/app_backdrop.dart';
+import '../../widgets/buttons.dart';
+import 'widgets/ride_detail_sections.dart';
+
+/// Ported from `RideBookingCheckoutView` in `RideDetailViews.swift`.
+///
+/// Submits the booking through the real Supabase backend, then shows the
+/// confirmation dialog and returns to the previous screen.
+class RideBookingCheckoutScreen extends ConsumerStatefulWidget {
+  const RideBookingCheckoutScreen({
+    super.key,
+    required this.ride,
+    required this.passengerCount,
+    required this.totalPriceText,
+  });
+
+  final Ride ride;
+  final int passengerCount;
+  final String totalPriceText;
+
+  @override
+  ConsumerState<RideBookingCheckoutScreen> createState() =>
+      _RideBookingCheckoutScreenState();
+}
+
+class _RideBookingCheckoutScreenState
+    extends ConsumerState<RideBookingCheckoutScreen> {
+  final _messageController = TextEditingController();
+  bool _isSubmitting = false;
+
+  Ride get ride => widget.ride;
+  bool get _instant => ride.instantBookingEnabled;
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() => _isSubmitting = true);
+    String? errorMessage;
+    try {
+      await ref.read(supabaseServiceProvider).createBooking(
+            ride: ride,
+            seatsCount: widget.passengerCount,
+          );
+      ref.read(bookedTripsProvider.notifier).refresh();
+    } on SupabaseServiceError catch (e) {
+      errorMessage = e.message;
+    } catch (_) {
+      errorMessage = 'Не удалось отправить бронирование. Попробуйте ещё раз.';
+    }
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+
+    if (errorMessage != null) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Не удалось выполнить действие'),
+          content: Text(errorMessage!),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Ок'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          _instant ? 'Бронирование подтверждено' : 'Заявка отправлена',
+        ),
+        content: Text(
+          _instant
+              ? 'Место закреплено сразу, поездка уже появилась в ваших '
+                    'активных поездках.'
+              : 'Водитель получит вашу заявку и сможет подтвердить её.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Ок'),
+          ),
+        ],
+      ),
+    );
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    final arrivalTimeText = RideBookingDomain.arrivalTimeText(ride);
+    final seatWord = widget.passengerCount == 1 ? 'место' : 'места';
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppBackdrop(),
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 110),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Проверьте данные вашего бронирования',
+                  style: HSText.largeTitle,
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      child: Icon(
+                        _instant ? Icons.bolt : Icons.event_available,
+                        size: 18,
+                        color: hs.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _instant
+                                ? 'Ваше бронирование подтвердится сразу'
+                                : 'Ваше бронирование будет подтверждено только '
+                                      'после одобрения водителя',
+                            style: HSText.subheadlineSemibold,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _instant
+                                ? 'Место закрепится без дополнительного '
+                                      'ожидания.'
+                                : 'После отправки водитель увидит ваш запрос и '
+                                      'сможет подтвердить поездку.',
+                            style: HSText.footnote.copyWith(
+                              color: context.secondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Divider(color: hs.stroke.withValues(alpha: 0.8)),
+                const SizedBox(height: 18),
+                Text(
+                  DateTextFormatter.weekdayDayMonth(ride.departureDate),
+                  style: HSText.title3,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          DateTextFormatter.time(ride.departureDate),
+                          style: HSText.headline,
+                        ),
+                        const SizedBox(height: 26),
+                        Text(arrivalTimeText, style: HSText.headline),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          RideLocationRow(
+                            title: ride.fromCity,
+                            subtitle:
+                                ride.meetingPoint.addressLine ?? 'Уточняется',
+                            accent: hs.primary,
+                            showsConnector: true,
+                          ),
+                          RideLocationRow(
+                            title: ride.toCity,
+                            subtitle:
+                                ride.destinationPoint.addressLine ??
+                                'Уточняется',
+                            accent: hs.passenger,
+                            showsConnector: false,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Divider(color: hs.stroke.withValues(alpha: 0.8)),
+                const SizedBox(height: 18),
+                Text('Всего к оплате', style: HSText.title3),
+                const SizedBox(height: 14),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${widget.passengerCount} $seatWord: '
+                          '${widget.totalPriceText}',
+                          style: HSText.title3,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Во время поездки',
+                          style: HSText.subheadline.copyWith(
+                            color: context.secondaryText,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Text('Наличными', style: HSText.title3),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Divider(color: hs.stroke.withValues(alpha: 0.8)),
+                const SizedBox(height: 18),
+                Text(
+                  'Напишите пользователю ${ride.driver.name}, чтобы повысить '
+                  'свои шансы на совместную поездку',
+                  style: HSText.title3,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _messageController,
+                  minLines: 5,
+                  maxLines: 8,
+                  decoration: InputDecoration(
+                    hintText: 'Введите текст',
+                    filled: true,
+                    fillColor: hs.secondarySurface,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: hs.stroke),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: hs.stroke),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        color: hs.cardBackground,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Divider(height: 1, color: hs.stroke.withValues(alpha: 0.9)),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                8,
+                20,
+                12 + MediaQuery.of(context).padding.bottom,
+              ),
+              child: PrimaryFilledButton(
+                label: _instant ? 'Забронировать сразу' : 'Отправить запрос',
+                isLoading: _isSubmitting,
+                onPressed: _isSubmitting ? null : _submit,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
