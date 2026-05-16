@@ -252,10 +252,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ProfileAvatar(
-                  initials: thread.initials,
-                  avatarBytes: thread.avatarBytes,
-                  size: 36,
+                heroAvatar(
+                  id: thread.participantBackendId,
+                  child: ProfileAvatar(
+                    initials: thread.initials,
+                    avatarBytes: thread.avatarBytes,
+                    size: 36,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Flexible(

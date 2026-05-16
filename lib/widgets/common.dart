@@ -155,6 +155,13 @@ class CompactRoutePoint extends StatelessWidget {
   }
 }
 
+/// Wrap an avatar widget in a [Hero] so it animates between screens when
+/// the same user appears (e.g. chat list row -> chat detail header -> public
+/// profile). When [id] is null the avatar is returned as-is — no Hero, no
+/// crash. Tag format is `avatar-$id`, shared across the chain.
+Widget heroAvatar({required String? id, required Widget child}) =>
+    id == null ? child : Hero(tag: 'avatar-$id', child: child);
+
 /// Ported from `ProfileAvatar` in `RideUIComponents.swift`. When [avatarBytes]
 /// is non-null the photo is rendered as a clipped circle; otherwise the
 /// gradient/initials fallback matches the Swift design.

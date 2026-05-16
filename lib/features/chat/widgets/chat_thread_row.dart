@@ -33,10 +33,13 @@ class ChatThreadRow extends StatelessWidget {
           Stack(
             clipBehavior: Clip.none,
             children: [
-              ProfileAvatar(
-                initials: thread.initials,
-                avatarBytes: thread.avatarBytes,
-                size: 46,
+              heroAvatar(
+                id: thread.participantBackendId,
+                child: ProfileAvatar(
+                  initials: thread.initials,
+                  avatarBytes: thread.avatarBytes,
+                  size: 46,
+                ),
               ),
               if (thread.isOnline)
                 Positioned(

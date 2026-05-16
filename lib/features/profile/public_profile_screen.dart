@@ -9,6 +9,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/app_backdrop.dart';
+import '../../widgets/common.dart';
 import '../../widgets/glass_card.dart';
 import 'report_user_screen.dart';
 import 'widgets/profile_widgets.dart';
@@ -122,10 +123,13 @@ class _HeaderCard extends StatelessWidget {
     return GlassCard(
       child: Column(
         children: [
-          ProfileAvatarView(
-            initials: profile.initials,
-            avatarBytes: profile.avatarBytes,
-            size: 88,
+          heroAvatar(
+            id: profile.backendId,
+            child: ProfileAvatarView(
+              initials: profile.initials,
+              avatarBytes: profile.avatarBytes,
+              size: 88,
+            ),
           ),
           const SizedBox(height: 12),
           Text(profile.name,
