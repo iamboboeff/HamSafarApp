@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/supabase/supabase_service.dart';
+import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/glass_card.dart';
 import 'widgets/profile_widgets.dart';
@@ -21,17 +23,19 @@ enum DeleteAccountReason {
 
 /// Ported from `DeleteAccountFlowView` in `ProfileViews.swift`.
 ///
-/// Account deletion needs the backend auth layer; here the confirmation just
-/// reports that it will be available once auth is connected.
-class DeleteAccountScreen extends StatefulWidget {
+/// Confirms, then permanently deletes the account via the `delete-account`
+/// edge function and signs the user out (QA #82).
+class DeleteAccountScreen extends ConsumerStatefulWidget {
   const DeleteAccountScreen({super.key});
 
   @override
-  State<DeleteAccountScreen> createState() => _DeleteAccountScreenState();
+  ConsumerState<DeleteAccountScreen> createState() =>
+      _DeleteAccountScreenState();
 }
 
-class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
+class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   DeleteAccountReason _reason = DeleteAccountReason.notUseful;
+  bool _isDeleting = false;
 
   Future<void> _confirm() async {
     final confirmed = await showDialog<bool>(
@@ -53,14 +57,30 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
         ],
       ),
     );
-    if (confirmed == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Удаление аккаунта станет доступно после '
-            'подключения авторизации.',
-          ),
-        ),
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await ref.read(supabaseServiceProvider).deleteAccount();
+      // Account is gone on the backend — clear the local session and return to
+      // the root, where the user is now a guest.
+      await ref.read(sessionProvider.notifier).signOut();
+      if (!mounted) return;
+      navigator.popUntil((route) => route.isFirst);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Аккаунт удалён.')),
+      );
+    } on SupabaseServiceError catch (e) {
+      if (!mounted) return;
+      setState(() => _isDeleting = false);
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isDeleting = false);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Не удалось удалить аккаунт.')),
       );
     }
   }
@@ -73,7 +93,6 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
             child: Column(
@@ -139,8 +158,8 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                 ),
                 const SizedBox(height: 16),
                 DestructiveOutlineButton(
-                  label: 'Продолжить удаление',
-                  onPressed: _confirm,
+                  label: _isDeleting ? 'Удаляем…' : 'Продолжить удаление',
+                  onPressed: _isDeleting ? null : _confirm,
                 ),
               ],
             ),

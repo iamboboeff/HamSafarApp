@@ -29,51 +29,76 @@ class RidePoint {
   /// Ported from `RidePoint.popularPlaces` / `popularPlaceTitles` in
   /// `Models.swift` — well-known meeting/arrival spots per city.
   static List<RidePoint> popularPlaces(String city, RidePointKind kind) {
-    const departureCandidates = <String, List<String>>{
-      'Ташкент': ['Северный вокзал', 'ТЦ Mega Planet', 'Метро Буюк Ипак Йули'],
-      'Самарканд': [
-        'Регистан, главный вход',
-        'Самарканд City',
-        'Железнодорожный вокзал',
-      ],
-      'Бухара': ['Ляби-Хауз', 'Бухара Молл', 'ЖД вокзал Каган'],
-      'Хива': [
-        'Ичан-Кала, восточные ворота',
-        'Автовокзал Хива',
-        'Центральный рынок',
-      ],
-      'Душанбе': ['ТЦ Сиёма Молл', 'Южный автовокзал', 'Оперный театр'],
-      'Худжанд': ['ТЦ Атуш', 'Парк Камоли Худжанди', 'Автовокзал Худжанд'],
-    };
-    const arrivalCandidates = <String, List<String>>{
-      'Ташкент': ['Magic City', 'Северный вокзал', 'ТЦ Compass'],
-      'Самарканд': ['Сиабский рынок', 'Регистан', 'ЖД вокзал Самарканд'],
-      'Бухара': ['Ляби-Хауз', 'Старый город', 'Автовокзал Бухара'],
-      'Хива': [
-        'Ичан-Кала, западные ворота',
-        'Центральный рынок',
-        'Автостанция Хива',
-      ],
-      'Душанбе': ['Площадь Дусти', 'Сиёма Молл', 'Южный автовокзал'],
-      'Худжанд': ['Парк Камоли Худжанди', 'Центральный рынок', 'ТЦ Атуш'],
-    };
-    final titles = switch (kind) {
-      RidePointKind.meeting =>
-        departureCandidates[city] ??
-            const [
-              'Центральный вокзал',
-              'Центральный рынок',
-              'Главная площадь',
-            ],
-      RidePointKind.destination =>
-        arrivalCandidates[city] ??
-            const ['Главная площадь', 'Центральный рынок', 'Автовокзал'],
-    };
+    // Real, well-known gathering / pickup spots per city — transport hubs,
+    // central bazaars, main squares and landmarks (web-verified). The same set
+    // works for both the pickup ("Откуда") and drop-off ("Куда") pickers. Small
+    // district centers fall back to their genuinely-existing market / stand /
+    // square. The `kind` argument is accepted for API compatibility but the
+    // gathering points are the same regardless of travel direction.
+    final titles = _cityPlaces[city] ??
+        const ['Центральный рынок', 'Автовокзал', 'Главная площадь'];
     return [
       for (final title in titles)
         RidePoint(title: title, subtitle: city, addressLine: title),
     ];
   }
+
+  static const Map<String, List<String>> _cityPlaces = {
+    // Tajikistan
+    'Душанбе': ['Автовокзал', 'Зелёный базар', 'Площадь Дусти'],
+    'Худжанд': ['Базар Панчшанбе', 'Автовокзал', 'Парк Камоли Худжанди'],
+    'Куляб': ['Центральный рынок', 'Мавзолей Хамадони', 'Аэропорт Куляб'],
+    'Бохтар': ['Центральный базар', 'Парк Лохути', 'Автовокзал'],
+    'Истаравшан': ['Центральный базар', 'Мечеть Кок-Гумбаз', 'Крепость Мугтеппа'],
+    'Пенджикент': ['Центральный базар', 'Музей Рудаки', 'Древний Пенджикент'],
+    'Турсунзаде': ['Центральный рынок', 'Завод ТАлКо', 'Городской музей'],
+    'Канибадам': ['Центральный базар', 'Медресе Ойим', 'Медресе Мир Раджаб Додхо'],
+    'Исфара': ['Автовокзал', 'Центральный базар', 'Парк Исмаила Самани'],
+    'Айни': ['Автостанция', 'Центральный базар', 'Минарет Варзи Манор'],
+    'Ашт': ['Центральный базар', 'Автостанция', 'Центральная площадь'],
+    'Матча': ['Центральный базар', 'Автостанция', 'Центральная площадь'],
+    'Спитамен': ['ЖД вокзал', 'Центральный базар', 'Центральная площадь'],
+    'Бободжон Гафуров': ['ЖД вокзал', 'Базар Фаравон', 'Музей Гафурова'],
+    'Вахдат': ['Янги Бозор', 'Автовокзал', 'Памятник матери'],
+    'Гиссар': ['Гиссарская крепость', 'Центральный рынок', 'Автовокзал'],
+    'Нурек': ['Автовокзал', 'Центральный рынок', 'Нурекская ГЭС'],
+    'Рогун': ['Автовокзал', 'Центральный рынок', 'Рогунская ГЭС'],
+    'Дангара': ['Центральный рынок', 'ЖД вокзал', 'Площадь Сомони'],
+    'Фархор': ['Центральный рынок', 'Автовокзал', 'Центральная площадь'],
+    'Яван': ['Автовокзал', 'Центральный рынок', 'ЖД вокзал'],
+    'Хамадони': ['Центральный рынок', 'Автовокзал', 'Центральная площадь'],
+    'Левакант': ['Автовокзал', 'Центральный рынок', 'Центральная площадь'],
+    'Шахринав': ['Центральный рынок', 'Автостанция', 'Шахринавское городище'],
+    'Рудаки': ['Центральный рынок', 'Автостанция', 'Центральная площадь'],
+    'Кушониён': ['Центральный рынок', 'Автостанция', 'Центральная площадь'],
+    'Кубодиён': ['Центральный рынок', 'ЖД вокзал', 'Центральная площадь'],
+    'Джайхун': ['Центральный рынок', 'Автостанция', 'Центральная площадь'],
+    'Муминабад': ['Центральный рынок', 'Автостанция', 'Центральная площадь'],
+    'Темурмалик': ['Центральный рынок', 'Автостанция', 'Центральная площадь'],
+    'Восе': ['Центральный рынок', 'Автовокзал', 'Центральная площадь'],
+    'Хорог': ['Центральный рынок', 'Парк Шипанг', 'Памирский ботанический сад'],
+    // Uzbekistan
+    'Ташкент': ['Базар Чорсу', 'Автовокзал Ташкент', 'Бекат Куйлюк'],
+    'Самарканд': ['Сиабский базар', 'Регистан', 'Автовокзал'],
+    'Бухара': ['Колхозный рынок', 'Ляби-Хауз', 'Центральный автовокзал'],
+    'Хива': ['Ичан-Кала', 'Дехкан базар', 'ЖД вокзал'],
+    'Андижан': ['Автовокзал', 'Старый рынок (Эски бозор)', 'Парк Бабура'],
+    'Наманган': ['Автовокзал', 'Базар Чорсу', 'Парк Бабура'],
+    'Фергана': ['Центральный рынок', 'Автовокзал', 'Центральный парк'],
+    'Коканд': ['Дворец Худояр-хана', 'Базар Янги Чорсу', 'Автовокзал'],
+    'Нукус': ['Автовокзал', 'Центральный рынок', 'Музей Савицкого'],
+    'Термез': ['ЖД вокзал', 'Дехканский рынок', 'Археологический музей'],
+    'Карши': ['ЖД вокзал', 'Старый рынок (Эски бозор)', 'Площадь Мустакиллик'],
+    'Джизак': ['Автовокзал', 'Центральный рынок', 'Парк Истиклол'],
+    'Навои': ['ЖД вокзал', 'Янги базар', 'Дворец культуры Фархад'],
+    'Гулистан': ['ЖД вокзал', 'Базар Чорсу', 'Центральная площадь'],
+    'Ургенч': ['ЖД вокзал', 'Центральный рынок', 'Мемориал Джалолиддина'],
+    'Маргилан': ['ЖД вокзал', 'Базар Кумтепа', 'Фабрика Ёдгорлик'],
+    'Шахрисабз': ['Ак-Сарай', 'Базар Чорсу', 'Автовокзал'],
+    'Денау': ['Базар Бободехкон', 'ЖД вокзал', 'Медресе Саид Аталык'],
+    'Зарафшан': ['Центральный базар', 'Автовокзал', 'Центральная площадь'],
+    'Кунград': ['ЖД вокзал', 'Центральный базар', 'Центральная площадь'],
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -157,6 +182,9 @@ class Ride {
     required this.pricePerSeat,
     required this.seatsLeft,
     required this.carModel,
+    this.carColor = '',
+    this.carPlate = '',
+    this.durationSeconds,
     this.routeSummary = '',
     this.notes = '',
     required this.driver,
@@ -175,6 +203,12 @@ class Ride {
   final int pricePerSeat;
   final int seatsLeft;
   final String carModel;
+  final String carColor;
+  final String carPlate;
+
+  /// Driving time in seconds for this city pair, from the `route_durations`
+  /// cache (null when not computed — see [travelDuration] for the fallback).
+  final int? durationSeconds;
   final String routeSummary;
   final String notes;
   final UserProfile driver;
@@ -216,25 +250,36 @@ class Ride {
 
   String get departureTimeText => DateTextFormatter.dayMonthTime(departureDate);
 
-  /// Mirrors the hard-coded route durations in the Swift `travelTimeText`.
+  /// Real driving time from the `route_durations` cache (OpenRouteService),
+  /// when available for this city pair; otherwise a coarse hard-coded estimate
+  /// for legacy / not-yet-computed routes.
+  Duration get travelDuration {
+    final secs = durationSeconds;
+    if (secs != null && secs > 0) return Duration(seconds: secs);
+    return _fallbackTravelDuration;
+  }
+
   String get travelTimeText {
+    final d = travelDuration;
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    if (h > 0 && m > 0) return '$h ч $m мин';
+    if (h > 0) return '$h ч';
+    return '$m мин';
+  }
+
+  Duration get _fallbackTravelDuration {
     final from = fromCity.toLowerCase();
     final to = toCity.toLowerCase();
     bool route(String a, String b) =>
         (from == a && to == b) || (from == b && to == a);
-    if (route('ташкент', 'самарканд')) return '4 ч 30 мин';
-    if (route('ташкент', 'бухара')) return '7 ч 15 мин';
-    if (route('ташкент', 'хива')) return '12 ч 40 мин';
-    if (route('душанбе', 'худжанд')) return '5 ч 20 мин';
-    return '3 ч 45 мин';
-  }
-
-  Duration get travelDuration {
-    final hours = RegExp(r'(\d+)\s*ч').firstMatch(travelTimeText);
-    final minutes = RegExp(r'(\d+)\s*мин').firstMatch(travelTimeText);
-    final h = hours == null ? 0 : int.parse(hours.group(1)!);
-    final m = minutes == null ? 0 : int.parse(minutes.group(1)!);
-    return Duration(hours: h, minutes: m);
+    if (route('ташкент', 'самарканд')) {
+      return const Duration(hours: 4, minutes: 30);
+    }
+    if (route('ташкент', 'бухара')) return const Duration(hours: 7, minutes: 15);
+    if (route('ташкент', 'хива')) return const Duration(hours: 12, minutes: 40);
+    if (route('душанбе', 'худжанд')) return const Duration(hours: 5, minutes: 20);
+    return const Duration(hours: 3, minutes: 45);
   }
 
   DateTime get estimatedArrivalDate => departureDate.add(travelDuration);

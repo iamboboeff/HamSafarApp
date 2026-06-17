@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'dart:io' show HttpClient, HttpDate, HttpException, Platform;
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/activity_notification.dart';
 import '../../models/booked_trip.dart';
 import '../../models/car_profile.dart';
+import '../../models/ride_alert.dart';
 import '../../models/passenger_request.dart';
 import '../../models/ride.dart';
 import '../../models/ride_passenger_booking.dart';
@@ -16,8 +17,13 @@ import 'supabase_rows.dart';
 
 /// App-level error with a user-facing (Russian) message.
 class SupabaseServiceError implements Exception {
-  SupabaseServiceError(this.message);
+  SupabaseServiceError(this.message, {this.retryAfterSeconds});
   final String message;
+
+  /// When the backend rate-limits an action it reports how many seconds the
+  /// user must wait. Surfaced so the UI can show a live countdown (QA #80).
+  final int? retryAfterSeconds;
+
   @override
   String toString() => message;
 }
@@ -49,6 +55,7 @@ class RidePublishPayload {
     required this.availableSeatLabels,
     required this.notes,
     required this.routeSummary,
+    this.currency = 'TJS',
   });
 
   final String fromCountry;
@@ -63,6 +70,10 @@ class RidePublishPayload {
   final List<String> availableSeatLabels;
   final String notes;
   final String routeSummary;
+
+  /// Currency the driver priced the ride in (TJS/UZS), persisted so the card
+  /// shows the right currency instead of the driver's residence default.
+  final String currency;
 }
 
 /// Payload for publishing a passenger request.
@@ -146,7 +157,10 @@ class SupabaseService {
         password: password,
       );
     } on AuthException catch (e) {
-      throw SupabaseServiceError(_localizedAuthError(e.message, _AuthCtx.register));
+      throw SupabaseServiceError(
+        _localizedAuthError(e.message, _AuthCtx.register),
+        retryAfterSeconds: _retryAfterSeconds(e.message),
+      );
     }
   }
 
@@ -159,6 +173,44 @@ class SupabaseService {
     } on AuthException catch (e) {
       throw SupabaseServiceError(
         _localizedAuthError(e.message, _AuthCtx.resendCode),
+        retryAfterSeconds: _retryAfterSeconds(e.message),
+      );
+    }
+  }
+
+  /// Sends a password-recovery code to [email] (QA #67). Mirrors the signup OTP
+  /// flow — the recovery email template must include the `{{ .Token }}` code.
+  Future<void> sendPasswordRecovery(String email) async {
+    try {
+      await _client.auth.resetPasswordForEmail(email.trim().toLowerCase());
+    } on AuthException catch (e) {
+      throw SupabaseServiceError(
+        _localizedAuthError(e.message, _AuthCtx.resendCode),
+        retryAfterSeconds: _retryAfterSeconds(e.message),
+      );
+    }
+  }
+
+  /// Verifies the recovery code, establishing a short-lived session that lets
+  /// the user set a new password via [updatePassword] (QA #67).
+  Future<void> verifyPasswordRecoveryOtp({
+    required String email,
+    required String token,
+  }) async {
+    try {
+      await _client.auth.verifyOTP(
+        email: email.trim().toLowerCase(),
+        token: token.trim(),
+        type: OtpType.recovery,
+      );
+    } on AuthException catch (e) {
+      throw SupabaseServiceError(
+        _localizedAuthError(e.message, _AuthCtx.verifyCode),
+      );
+    }
+    if (currentUser == null) {
+      throw SupabaseServiceError(
+        'Не удалось подтвердить код. Попробуйте снова.',
       );
     }
   }
@@ -187,7 +239,87 @@ class SupabaseService {
     return _fetchSessionData(user);
   }
 
-  Future<void> signOut() => _client.auth.signOut();
+  // Local scope clears the persisted session without a network round-trip, so
+  // signing out works offline (global scope hangs/fails with no connection and
+  // could leave the session persisted, re-logging the user in on restart —
+  // QA #92). It also only logs out this device, which is what a normal
+  // "log out" should do.
+  Future<void> signOut() =>
+      _client.auth.signOut(scope: SignOutScope.local);
+
+  /// Returns the current server time by issuing a HEAD request against the
+  /// Supabase URL and parsing the `Date` HTTP response header.
+  ///
+  /// Ported from `SupabaseServiceAccount.swift:80 fetchCurrentServerDate`.
+  /// Used by the create-ride flow to guard against publishing rides with a
+  /// past timestamp when the device clock is skewed.
+  Future<DateTime> fetchCurrentServerDate() async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.openUrl(
+        'HEAD',
+        Uri.parse(SupabaseConfig.url),
+      );
+      final response = await request.close().timeout(
+            const Duration(seconds: 10),
+          );
+      // Drain the (empty) body so the socket can be reused.
+      await response.drain<void>();
+      final dateHeader = response.headers.value('date');
+      if (dateHeader == null || dateHeader.isEmpty) {
+        throw SupabaseServiceError('Не удалось получить серверное время.');
+      }
+      try {
+        return HttpDate.parse(dateHeader).toUtc();
+      } on HttpException {
+        throw SupabaseServiceError('Не удалось разобрать серверное время.');
+      } on FormatException {
+        throw SupabaseServiceError('Не удалось разобрать серверное время.');
+      }
+    } finally {
+      client.close(force: false);
+    }
+  }
+
+  /// Updates the password for the currently-authenticated user.
+  ///
+  /// Ported from `SupabaseServiceAccount.swift:103 updatePassword`. The Swift
+  /// flow re-authenticates with the current password first (see
+  /// `ProfileViews.swift:512`) — that re-auth is kept on the caller side so
+  /// this method only handles the actual password update RPC.
+  Future<void> updatePassword(String newPassword) async {
+    try {
+      await _client.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+    } on AuthException catch (e) {
+      throw SupabaseServiceError(
+        _localizedAuthError(e.message, _AuthCtx.signIn),
+      );
+    }
+  }
+
+  /// Permanently deletes the signed-in user's account via the `delete-account`
+  /// edge function (QA #82). The backend removes the auth user; every owned row
+  /// in public.* is cleaned up by ON DELETE CASCADE. Callers must sign out
+  /// locally afterwards — the session is no longer valid.
+  Future<void> deleteAccount() async {
+    try {
+      final res = await _client.functions.invoke('delete-account');
+      if (res.status != 200) {
+        throw SupabaseServiceError(
+          'Не удалось удалить аккаунт. Попробуйте ещё раз.',
+        );
+      }
+    } on SupabaseServiceError {
+      rethrow;
+    } catch (_) {
+      throw SupabaseServiceError(
+        'Не удалось удалить аккаунт. Попробуйте ещё раз.',
+      );
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Session / profile (ported from SupabaseServiceAccount.swift)
@@ -243,6 +375,26 @@ class SupabaseService {
     );
   }
 
+  /// Uploads a newly-picked avatar to the `avatars` Storage bucket and returns
+  /// its public URL (with a cache-busting `?t=` so updates aren't masked by a
+  /// stale cache). Returns the existing [UserProfile.avatarUrl] unchanged when
+  /// no new image was picked.
+  Future<String?> _uploadAvatarIfNeeded(String userId, UserProfile profile) async {
+    final bytes = profile.avatarBytes;
+    if (bytes == null || bytes.isEmpty) return profile.avatarUrl;
+    final path = '$userId/avatar.jpg';
+    await _client.storage.from('avatars').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: true,
+          ),
+        );
+    final base = _client.storage.from('avatars').getPublicUrl(path);
+    return '$base?t=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
   Future<SupabaseSessionData> saveProfile(UserProfile profile) async {
     final user = _requireUser();
     final existing = await _client
@@ -254,12 +406,17 @@ class SupabaseService {
         ? true
         : (existing.first['allow_public_profile'] as bool? ?? true);
 
+    // A freshly-picked avatar arrives as bytes — upload it to Storage (small,
+    // CDN-served) and persist the public URL instead of inlining base64 into
+    // the row. With no new pick, keep whatever URL the profile already has.
+    final avatarUrl = await _uploadAvatarIfNeeded(user.id, profile);
+
     await _client.from('profiles').upsert({
       'id': user.id,
       'full_name': profile.name,
       'phone': profile.phoneNumber,
       'email': profile.email,
-      'avatar_url': UserProfile.encodeAvatarBytes(profile.avatarBytes),
+      'avatar_url': avatarUrl,
       'rating': profile.rating,
       'completed_trips': profile.completedTrips,
       'gender': profile.gender?.name,
@@ -319,9 +476,24 @@ class SupabaseService {
   // Marketplace reads (ported from SupabaseService.swift)
   // ---------------------------------------------------------------------------
 
-  Future<List<ProfileRow>> _fetchAllProfiles() async {
-    final rows = await _client.from('profiles').select();
+  /// Fetches only the referenced profiles by id. Crucial for performance:
+  /// every `profiles` row carries a large base64 avatar inline (hundreds of KB
+  /// each), so an unfiltered `select()` downloads several MB on every call.
+  /// Fetching just the ids actually shown keeps each load small.
+  Future<List<ProfileRow>> _profilesByIds(Iterable<String> ids) async {
+    final list = ids.toSet().toList();
+    if (list.isEmpty) return const [];
+    final rows = await _client.from('profiles').select().inFilter('id', list);
     return rows.map(ProfileRow.new).toList();
+  }
+
+  /// [_enrichedProfilesById] that fetches the referenced rows by id first.
+  Future<Map<String, UserProfile>> _enrichedProfilesByIds(
+    Iterable<String> ids,
+  ) async {
+    final rows = await _profilesByIds(ids);
+    if (rows.isEmpty) return {};
+    return _enrichedProfilesById(rows);
   }
 
   Future<Map<String, VehicleRow>> _fetchVehiclesById() async {
@@ -374,6 +546,7 @@ class SupabaseService {
       base[entry.key] = _withRatings(
         profile,
         rating: entry.value.rating,
+        ratingCount: entry.value.count,
         completedTrips: profile.completedTrips > entry.value.count
             ? profile.completedTrips
             : entry.value.count,
@@ -386,6 +559,7 @@ class SupabaseService {
     UserProfile p, {
     required double rating,
     required int completedTrips,
+    int ratingCount = 0,
   }) {
     return UserProfile(
       id: p.id,
@@ -393,8 +567,11 @@ class SupabaseService {
       name: p.name,
       rating: rating,
       completedTrips: completedTrips,
+      ratingCount: ratingCount,
       phoneNumber: p.phoneNumber,
       email: p.email,
+      avatarBytes: p.avatarBytes,
+      avatarUrl: p.avatarUrl,
       gender: p.gender,
       birthDate: p.birthDate,
       registeredAt: p.registeredAt,
@@ -429,6 +606,9 @@ class SupabaseService {
       pricePerSeat: ride.pricePerSeat,
       seatsLeft: remaining.length,
       carModel: ride.carModel,
+      carColor: ride.carColor,
+      carPlate: ride.carPlate,
+      durationSeconds: ride.durationSeconds,
       routeSummary: ride.routeSummary,
       notes: ride.notes,
       driver: ride.driver,
@@ -438,19 +618,24 @@ class SupabaseService {
     );
   }
 
-  Future<Map<String, List<RideReview>>> _reviewsByReviewee(
-    List<String> userIds,
-    Map<String, UserProfile> profilesById,
+  Future<List<RideReviewRow>> _fetchReviewRows(
+    List<String> revieweeIds,
   ) async {
-    if (userIds.isEmpty) return {};
+    if (revieweeIds.isEmpty) return const [];
     final rows = await _client
         .from('ride_reviews')
         .select()
-        .inFilter('reviewee_id', userIds)
+        .inFilter('reviewee_id', revieweeIds)
         .order('created_at', ascending: false);
+    return rows.map(RideReviewRow.new).toList();
+  }
+
+  Map<String, List<RideReview>> _groupReviews(
+    List<RideReviewRow> rows,
+    Map<String, UserProfile> profilesById,
+  ) {
     final result = <String, List<RideReview>>{};
-    for (final raw in rows) {
-      final row = RideReviewRow(raw);
+    for (final row in rows) {
       final author = profilesById[row.reviewerId]?.name ?? 'Пассажир';
       result.putIfAbsent(row.revieweeId, () => []).add(row.toModel(author));
     }
@@ -459,21 +644,28 @@ class SupabaseService {
 
   /// Ported from `fetchRides`.
   Future<List<Ride>> fetchRides() async {
-    final rideRowsRaw = await _client.from('rides_with_availability').select();
-    final rideRows = rideRowsRaw.map(RideRow.new).toList();
+    // Kick off the independent queries concurrently instead of one-by-one —
+    // this is the main cause of the slow search (was ~6 sequential round-trips).
+    // Only active rides are fetched (filter pushed to Postgres), and profiles
+    // are fetched by id afterwards so we never download the whole profiles
+    // table (each row carries a large base64 avatar).
+    final ridesFuture =
+        _client.from('rides_with_availability').select().eq('status', 'active');
+    final vehiclesFuture = _fetchVehiclesById();
+    final bookingsFuture = _fetchAllBookings();
 
-    final profilesById =
-        await _enrichedProfilesById(await _fetchAllProfiles());
-    final vehiclesById = await _fetchVehiclesById();
-    final bookings = await _fetchAllBookings();
-    final occupied = _occupiedSeatsByRideId(bookings);
-    final reviews = await _reviewsByReviewee(
-      rideRows.map((r) => r.driverId).toSet().toList(),
-      profilesById,
-    );
-
+    final rideRows = (await ridesFuture).map(RideRow.new).toList();
     final active = rideRows.where((r) => r.status == 'active').toList()
       ..sort((a, b) => a.departureAt.compareTo(b.departureAt));
+
+    final driverIds = active.map((r) => r.driverId).toSet().toList();
+    final reviewRows = await _fetchReviewRows(driverIds);
+    final profilesById = await _enrichedProfilesByIds(
+      {...driverIds, ...reviewRows.map((r) => r.reviewerId)},
+    );
+    final reviews = _groupReviews(reviewRows, profilesById);
+    final vehiclesById = await vehiclesFuture;
+    final occupied = _occupiedSeatsByRideId(await bookingsFuture);
 
     return active
         .map((row) {
@@ -490,13 +682,19 @@ class SupabaseService {
 
   /// Ported from `fetchPassengerRequests`.
   Future<List<PassengerRequest>> fetchPassengerRequests() async {
-    final rowsRaw = await _client.from('passenger_requests').select();
-    final rows = rowsRaw.map(PassengerRequestRow.new).toList();
-    final profilesById =
-        await _enrichedProfilesById(await _fetchAllProfiles());
+    final rows = (await _client
+            .from('passenger_requests')
+            .select()
+            .eq('status', 'active'))
+        .map(PassengerRequestRow.new)
+        .toList();
 
     final active = rows.where((r) => r.status == 'active').toList()
       ..sort((a, b) => a.departureAt.compareTo(b.departureAt));
+
+    final profilesById = await _enrichedProfilesByIds(
+      active.map((r) => r.passengerId).toSet(),
+    );
 
     return active
         .map((row) {
@@ -514,31 +712,81 @@ class SupabaseService {
         .toList();
   }
 
+  // ---------------------------------------------------------------------------
+  // Ride alerts (notify-me-when-a-ride-appears-on-this-route)
+  // ---------------------------------------------------------------------------
+
+  Future<List<RideAlert>> fetchRideAlerts() async {
+    final user = currentUser;
+    if (user == null) return const [];
+    final rows = await _client
+        .from('ride_alerts')
+        .select()
+        .eq('user_id', user.id)
+        .order('created_at', ascending: false);
+    return rows.map((r) => RideAlert.fromRow(r)).toList();
+  }
+
+  Future<RideAlert> createRideAlert({
+    required String fromCity,
+    required String toCity,
+  }) async {
+    final user = _requireUser();
+    final row = await _client
+        .from('ride_alerts')
+        .upsert({
+          'user_id': user.id,
+          'from_city': fromCity,
+          'to_city': toCity,
+        }, onConflict: 'user_id,from_city,to_city')
+        .select()
+        .single();
+    return RideAlert.fromRow(row);
+  }
+
+  Future<void> deleteRideAlert(String id) async {
+    await _client.from('ride_alerts').delete().eq('id', id);
+  }
+
   /// Ported from `fetchBookedTrips`.
   Future<List<BookedTrip>> fetchBookedTrips() async {
     final user = _requireUser();
-    final rideRowsRaw = await _client.from('rides_with_availability').select();
-    final rideRows = rideRowsRaw.map(RideRow.new).toList();
+    // Round-trip 1: independent queries in parallel (was 5 sequential awaits).
+    final ridesFuture = _client.from('rides_with_availability').select();
+    final vehiclesFuture = _fetchVehiclesById();
+    final bookingsFuture = _fetchAllBookings();
+    final searchPrefsFuture = _client
+        .from('rides')
+        .select('id, search_passengers_enabled')
+        .eq('driver_id', user.id);
+
+    final rideRows = (await ridesFuture).map(RideRow.new).toList();
+    final vehiclesById = await vehiclesFuture;
+    final bookings = await bookingsFuture;
+    final searchPrefsRaw = await searchPrefsFuture;
+
     final ridesById = {
       for (final r in rideRows)
         if (r.id != null) r.id!: r,
     };
-
-    final profilesById =
-        await _enrichedProfilesById(await _fetchAllProfiles());
-    final vehiclesById = await _fetchVehiclesById();
-    final bookings = await _fetchAllBookings();
     final occupied = _occupiedSeatsByRideId(bookings);
-
-    final searchPrefsRaw = await _client
-        .from('rides')
-        .select('id, search_passengers_enabled')
-        .eq('driver_id', user.id);
     final searchPrefs = {
       for (final raw in searchPrefsRaw)
         raw['id'] as String:
             (raw['search_passengers_enabled'] as bool?) ?? true,
     };
+
+    // Round-trip 2: only the profiles actually rendered — the user (their own
+    // trips) plus the drivers of rides they booked. Avoids pulling the whole
+    // profiles table with its inline base64 avatars.
+    final referencedProfileIds = <String>{user.id};
+    for (final b in bookings) {
+      if (b.passengerId == user.id) {
+        final driverId = ridesById[b.rideId]?.driverId;
+        if (driverId != null) referencedProfileIds.add(driverId);
+      }
+    }
+    final profilesById = await _enrichedProfilesByIds(referencedProfileIds);
 
     final driverTrips = rideRows.where((r) => r.driverId == user.id).map((row) {
       final base = row.toModel(
@@ -598,6 +846,7 @@ class SupabaseService {
             role: TripRole.passenger,
             confirmedPassengerCount: booking.status == 'confirmed' ? 1 : 0,
             pendingPassengerCount: booking.status == 'pending' ? 1 : 0,
+            cancelReason: booking.cancelReason,
           );
         })
         .whereType<BookedTrip>();
@@ -712,6 +961,7 @@ class SupabaseService {
           'available_seat_labels': payload.availableSeatLabels,
           'notes': payload.notes,
           'route_summary': payload.routeSummary,
+          'currency': payload.currency,
           'search_passengers_enabled': true,
           'status': 'active',
         })
@@ -722,7 +972,12 @@ class SupabaseService {
     return row.toModel(
       profilesById: {driver.backendId ?? driver.id: driver},
       vehiclesById: {
-        ?vehicleId: VehicleRow({'id': vehicleId, 'model': carProfile.model}),
+        ?vehicleId: VehicleRow({
+          'id': vehicleId,
+          'model': carProfile.model,
+          'color': carProfile.color,
+          'plate_number': carProfile.plateNumber,
+        }),
       },
     );
   }
@@ -786,6 +1041,12 @@ class SupabaseService {
     if (seatsCount <= 0) {
       throw SupabaseServiceError('Выберите количество мест.');
     }
+    // Can't book a ride whose departure time has already passed (QA #71).
+    if (!ride.departureDate.isAfter(DateTime.now())) {
+      throw SupabaseServiceError(
+        'Время отправления этой поездки уже прошло.',
+      );
+    }
 
     final activeBookings = await _client
         .from('bookings')
@@ -804,18 +1065,50 @@ class SupabaseService {
     }
 
     final status = ride.instantBookingEnabled ? 'confirmed' : 'pending';
-    final inserted = await _client
+
+    // `bookings` is UNIQUE on (ride_id, passenger_id), so a passenger who was
+    // previously cancelled by the driver still has a row here. Re-activate it
+    // instead of inserting a duplicate, which would violate the constraint and
+    // make re-booking impossible (QA #83).
+    final existingRows = await _client
         .from('bookings')
-        .insert({
-          'ride_id': rideId,
-          'passenger_id': user.id,
-          'seats_count': seatsCount,
-          'selected_seat_labels': <String>[],
-          'status': status,
-        })
-        .select()
-        .single();
-    final bookingRow = BookingRow(inserted);
+        .select('id, status')
+        .eq('ride_id', rideId)
+        .eq('passenger_id', user.id)
+        .limit(1);
+    final existing = existingRows.isNotEmpty ? existingRows.first : null;
+
+    final Map<String, dynamic> bookingData = {
+      'seats_count': seatsCount,
+      'selected_seat_labels': <String>[],
+      'status': status,
+      'cancel_reason': null,
+    };
+
+    final Map<String, dynamic> row;
+    if (existing != null) {
+      final existingStatus = existing['status'] as String?;
+      if (existingStatus == 'pending' || existingStatus == 'confirmed') {
+        throw SupabaseServiceError('Вы уже забронировали эту поездку.');
+      }
+      row = await _client
+          .from('bookings')
+          .update(bookingData)
+          .eq('id', existing['id'] as Object)
+          .select()
+          .single();
+    } else {
+      row = await _client
+          .from('bookings')
+          .insert({
+            'ride_id': rideId,
+            'passenger_id': user.id,
+            ...bookingData,
+          })
+          .select()
+          .single();
+    }
+    final bookingRow = BookingRow(row);
 
     return BookedTrip(
       id: bookingRow.id,
@@ -966,9 +1259,16 @@ class SupabaseService {
     return switch (status) {
       'cancelled' => 'Поездка отменена',
       'completed' => 'Завершена',
-      _ => departureAt.isBefore(DateTime.now())
-          ? 'Завершена'
-          : 'Опубликована',
+      // A ride that has merely passed its departure time is NOT finished — it
+      // is under way. Completion is driven by the estimated arrival
+      // (`BookedTrip.isCompleted` -> `ride.hasFinished`) or an explicit server
+      // `completed` status, both of which are identical for the driver and the
+      // passenger — so the trip flips to "completed" for both at the same
+      // moment. Previously a passed departure was localised to "Завершена"
+      // here, which auto-completed the ride for the driver at its start time
+      // while the passenger (whose status comes from the booking row) stayed
+      // active — see QA #96/#97.
+      _ => departureAt.isBefore(DateTime.now()) ? 'В пути' : 'Опубликована',
     };
   }
 
@@ -1032,6 +1332,90 @@ class SupabaseService {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Blocking (App Store Guideline 1.2 — let users block abusive users)
+  // ---------------------------------------------------------------------------
+
+  /// Every user id the current user is in a block relationship with, in either
+  /// direction (people they blocked + people who blocked them). The client uses
+  /// this to hide blocked users' chats, rides and requests mutually. Backed by
+  /// the `blocked_relationship_ids` SECURITY DEFINER function, so neither side
+  /// can tell who blocked whom.
+  Future<Set<String>> fetchBlockedUserIds() async {
+    if (_client.auth.currentUser == null) return <String>{};
+    try {
+      final result = await _client.rpc('blocked_relationship_ids');
+      if (result is List) {
+        return result.map((e) => e?.toString()).whereType<String>().toSet();
+      }
+    } catch (_) {
+      // Best-effort: a failure here must never break the chat list or feed.
+    }
+    return <String>{};
+  }
+
+  /// Blocks [blockedId] for the current user. Idempotent.
+  Future<void> blockUser(String blockedId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) {
+      throw SupabaseServiceError('Пользователь не авторизован.');
+    }
+    if (blockedId == userId) return;
+    await _client.from('blocked_users').upsert(
+      {'blocker_id': userId, 'blocked_id': blockedId},
+      onConflict: 'blocker_id,blocked_id',
+    );
+  }
+
+  /// Removes the current user's block on [blockedId]. Idempotent.
+  Future<void> unblockUser(String blockedId) async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+    await _client
+        .from('blocked_users')
+        .delete()
+        .eq('blocker_id', userId)
+        .eq('blocked_id', blockedId);
+  }
+
+  /// The profiles the current user has blocked, newest first — for the
+  /// "Заблокированные пользователи" management screen. Returns only the user's
+  /// own outgoing blocks (never "who blocked me").
+  Future<List<UserProfile>> fetchBlockedProfiles() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final blockRows = await _client
+        .from('blocked_users')
+        .select('blocked_id, created_at')
+        .eq('blocker_id', userId)
+        .order('created_at', ascending: false);
+    final ids = blockRows
+        .map((r) => r['blocked_id'] as String?)
+        .whereType<String>()
+        .toList();
+    if (ids.isEmpty) return const [];
+    final profiles = await _client
+        .from('profiles')
+        .select('id,full_name,avatar_url')
+        .inFilter('id', ids);
+    final byId = <String, UserProfile>{};
+    for (final raw in profiles) {
+      final id = raw['id'] as String?;
+      if (id == null) continue;
+      byId[id] = UserProfile(
+        id: id,
+        backendId: id,
+        name: (raw['full_name'] as String?) ?? 'Пользователь',
+        rating: 0,
+        completedTrips: 0,
+        avatarBytes: UserProfile.decodeAvatarUrl(raw['avatar_url'] as String?),
+        avatarUrl: UserProfile.avatarUrlFromColumn(raw['avatar_url'] as String?),
+      );
+    }
+    // Preserve the blocked-at ordering from `blockRows`.
+    return [for (final id in ids) if (byId[id] != null) byId[id]!];
+  }
+
   /// Ported from `submitContactIntake` — posts to the
   /// `contact--intake` Edge function with the same payload shape the Swift
   /// client uses.
@@ -1085,7 +1469,20 @@ class SupabaseService {
   Future<UserProfile?> fetchPublicProfile(String userId) async {
     final rows = await _client.from('profiles').select().eq('id', userId).limit(1);
     if (rows.isEmpty) return null;
-    return ProfileRow(Map<String, dynamic>.from(rows.first as Map)).toModel();
+    final base =
+        ProfileRow(Map<String, dynamic>.from(rows.first as Map)).toModel();
+    // Overlay the real review aggregate so the rating badge reflects actual
+    // reviews (and shows a placeholder when there are none) rather than the
+    // profile row's default 5.0 (QA #20).
+    final agg = (await _fetchReviewAggregates([userId]))[userId];
+    if (agg == null) return base;
+    return _withRatings(
+      base,
+      rating: agg.rating,
+      ratingCount: agg.count,
+      completedTrips:
+          base.completedTrips > agg.count ? base.completedTrips : agg.count,
+    );
   }
 
   /// Ported from `fetchPublicProfileStats`. Calls the `public_profile_stats`
@@ -1210,7 +1607,14 @@ class SupabaseService {
       'app_bundle_id': 'com.hamsafar.hamsafar',
       'push_environment': _pushEnvironment,
       'is_active': true,
-    }, onConflict: 'device_token');
+      // NB: the unique constraint on `push_device_tokens` is composite —
+      // `UNIQUE (user_id, device_token)` — so the conflict target has to
+      // match both columns. Specifying just `device_token` causes
+      // PostgREST to reject the upsert with "no unique or exclusion
+      // constraint matching ON CONFLICT specification" and the call
+      // would otherwise fail silently because the call site uses
+      // `.ignore()`.
+    }, onConflict: 'user_id,device_token');
   }
 
   static String get _platformIdentifier {
@@ -1310,6 +1714,14 @@ class SupabaseService {
 enum _AuthCtx { signIn, register, verifyCode, resendCode }
 
 /// Ported from `localizedAuthErrorMessage` in `AuthenticationViews.swift`.
+/// Extracts the "...after N seconds" wait hint Supabase returns on rate-limit
+/// errors, so the UI can count down to the next allowed attempt (QA #80).
+int? _retryAfterSeconds(String raw) {
+  final match = RegExp(r'(\d+)\s*second', caseSensitive: false).firstMatch(raw);
+  if (match == null) return null;
+  return int.tryParse(match.group(1)!);
+}
+
 String _localizedAuthError(String raw, _AuthCtx context) {
   final n = raw.toLowerCase();
   if (n.contains('invalid login credentials') ||
@@ -1327,6 +1739,10 @@ String _localizedAuthError(String raw, _AuthCtx context) {
   if (n.contains('rate limit') ||
       n.contains('security purposes') ||
       n.contains('too many requests')) {
+    final secs = _retryAfterSeconds(raw);
+    if (secs != null) {
+      return 'Слишком много попыток. Попробуйте снова через $secs сек.';
+    }
     return 'Слишком много попыток. Подождите немного и попробуйте снова.';
   }
   if (n.contains('otp') && n.contains('expired')) {

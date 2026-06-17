@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../state/app_state.dart';
 import '../../../theme/app_text.dart';
-import '../../../widgets/app_backdrop.dart';
 import '../../../widgets/glass_card.dart';
 import '../widgets/profile_widgets.dart';
 
@@ -22,7 +21,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(8, 20, 8, 20),
             child: Column(

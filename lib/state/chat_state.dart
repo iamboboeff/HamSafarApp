@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 
+import '../core/app_navigator.dart';
 import '../core/preferences/preferences_store.dart';
 import '../core/supabase/supabase_chat_service.dart';
 import '../domain/date_formatter.dart';
@@ -74,6 +75,9 @@ class ChatNotifier extends Notifier<ChatState> {
   String? _activeThreadId;
   Timer? _syncDebounce;
   bool _mounted = true;
+  // Per-thread unread baseline, so a realtime bump in a non-open chat can fire
+  // an in-app banner once (and not on initial load).
+  final Map<String, int> _lastUnread = {};
 
   @override
   ChatState build() {
@@ -88,6 +92,13 @@ class ChatNotifier extends Notifier<ChatState> {
         if (!_mounted) return;
         Future.microtask(() => _syncTripLifecycle(previous ?? const [], next));
       },
+    );
+
+    // Hide blocked users' chats the instant they're blocked; restore them on
+    // unblock (App Store Guideline 1.2).
+    ref.listen<Set<String>>(
+      blockedUserIdsProvider,
+      (previous, next) => _onBlockedChanged(previous ?? const {}, next),
     );
 
     ref.onDispose(() {
@@ -116,22 +127,71 @@ class ChatNotifier extends Notifier<ChatState> {
   // ---------------------------------------------------------------------------
 
   /// Ported from `ContentCoordinatorDataDomain.loadChats`.
+  ///
+  /// Wraps the fetch in a 25s timeout + `finally` block so the spinner can
+  /// never be stuck forever — without these, a hung Supabase request (slow
+  /// network, RLS lock, expired JWT) would leave `isListLoading=true` and
+  /// the chat list would show an indefinite spinner on the empty UI.
   Future<void> loadChats() async {
     if (state.threads.isEmpty && !state.isListLoading) {
       state = state.copyWith(isListLoading: true);
     }
     try {
-      final fetched = await _service.fetchChats();
+      final fetched =
+          await _service.fetchChats().timeout(const Duration(seconds: 25));
       if (!_mounted) return;
-      _mergeChats(fetched);
-      state = state.copyWith(isListLoading: false);
-    } catch (_) {
-      if (!_mounted) return;
-      state = state.copyWith(isListLoading: false);
+      _mergeChats(_withoutBlocked(fetched));
+      // Seed the unread baseline so banners only fire on *new* messages.
+      for (final t in state.threads) {
+        _lastUnread[t.id] = t.unreadCount;
+      }
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[chat] loadChats failed: $e\n$st');
+    } finally {
+      if (_mounted) {
+        state = state.copyWith(isListLoading: false);
+      }
     }
   }
 
   Future<void> refresh() => loadChats();
+
+  /// Removes threads whose counterpart the user has blocked (either direction).
+  List<ChatThread> _withoutBlocked(List<ChatThread> threads) {
+    final blocked = ref.read(blockedUserIdsProvider);
+    if (blocked.isEmpty) return threads;
+    return threads
+        .where((t) =>
+            t.participantBackendId == null ||
+            !blocked.contains(t.participantBackendId))
+        .toList();
+  }
+
+  bool _isThreadBlocked(ChatThread thread) {
+    final pid = thread.participantBackendId;
+    if (pid == null) return false;
+    return ref.read(blockedUserIdsProvider).contains(pid);
+  }
+
+  /// Drops now-blocked threads from the list immediately, and refetches when a
+  /// user is unblocked so their thread reappears.
+  void _onBlockedChanged(Set<String> previous, Set<String> next) {
+    if (!_mounted) return;
+    if (next.isNotEmpty) {
+      final filtered = state.threads
+          .where((t) =>
+              t.participantBackendId == null ||
+              !next.contains(t.participantBackendId))
+          .toList();
+      if (filtered.length != state.threads.length) {
+        state = state.copyWith(threads: filtered);
+      }
+    }
+    if (previous.difference(next).isNotEmpty) {
+      Future.microtask(loadChats);
+    }
+  }
 
   Future<void> _startRealtime() async {
     try {
@@ -144,7 +204,9 @@ class ChatNotifier extends Notifier<ChatState> {
   /// Debounced so a burst of postgres changes triggers a single sync pass.
   void _handleRealtimeSync(String? threadId) {
     _syncDebounce?.cancel();
-    _syncDebounce = Timer(const Duration(milliseconds: 400), () {
+    // Short debounce just coalesces rapid bursts; kept small so an incoming
+    // message in an open chat appears almost instantly.
+    _syncDebounce = Timer(const Duration(milliseconds: 120), () {
       _performSync(threadId);
     });
   }
@@ -163,13 +225,33 @@ class ChatNotifier extends Notifier<ChatState> {
         final refreshed = isActive
             ? await _service.fetchChat(threadId)
             : await _service.fetchChatSummary(threadId);
-        if (refreshed != null && _mounted) _mergeChat(refreshed);
+        if (refreshed != null && _mounted) {
+          // A blocked user's realtime message must not re-surface the thread.
+          if (_isThreadBlocked(refreshed)) return;
+          _mergeChat(refreshed);
+          if (!isActive) _maybeBanner(refreshed);
+        }
       } catch (_) {
         // Ignore — a later sync or explicit refresh recovers.
       }
       return;
     }
     await loadChats();
+  }
+
+  /// Fires an in-app banner once when a non-open chat gains a new unread
+  /// message (so the user is notified like a messenger while elsewhere).
+  void _maybeBanner(ChatThread thread) {
+    final previous = _lastUnread[thread.id] ?? 0;
+    final current = thread.unreadCount;
+    _lastUnread[thread.id] = current;
+    if (current > previous && current > 0) {
+      inAppMessages.add(InAppMessage(
+        localThreadId: thread.id,
+        title: thread.name,
+        body: thread.preview,
+      ));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -184,6 +266,19 @@ class ChatNotifier extends Notifier<ChatState> {
       if (thread.id == id) return thread;
     }
     return null;
+  }
+
+  /// Publishes the current user's presence in [localThreadId] so the other
+  /// participant sees "в сети" / "печатает..." (heartbeated by the chat screen).
+  void updatePresence(String localThreadId, {bool typing = false}) {
+    final backendId = threadById(localThreadId)?.backendId;
+    if (backendId == null) return;
+    _service.updateChatPresence(threadId: backendId, isTyping: typing).ignore();
+  }
+
+  /// Clears presence when leaving a chat (the row then goes stale → offline).
+  void clearPresence() {
+    _service.clearChatPresence().ignore();
   }
 
   void setActiveThread(String? threadId) {
@@ -654,6 +749,10 @@ class ChatNotifier extends Notifier<ChatState> {
     if (trimmed.isEmpty) return;
     final thread = threadById(threadId);
     if (thread == null) return;
+    // Sending from an archived chat moves it back to active (QA #65).
+    if (thread.category == ChatCategory.archive) {
+      setArchived(threadId, false);
+    }
     final now = DateTime.now();
     thread.messages = [
       ...thread.messages,
@@ -708,6 +807,10 @@ class ChatNotifier extends Notifier<ChatState> {
     if (thread == null) return 'Чат больше недоступен.';
     final backendId = thread.backendId;
     if (backendId == null) return 'Чат ещё не синхронизирован, попробуйте позже.';
+    // Sending from an archived chat moves it back to active (QA #65).
+    if (thread.category == ChatCategory.archive) {
+      setArchived(threadId, false);
+    }
 
     try {
       final attachment = await _service.uploadChatAttachment(
@@ -748,6 +851,22 @@ class ChatNotifier extends Notifier<ChatState> {
     }
   }
 
+  /// Resolves a viewable URL for a chat attachment so it can be opened/previewed
+  /// (QA #77). Prefers the stored public URL, otherwise mints a short-lived
+  /// signed URL from the attachment's storage path. Returns null if neither is
+  /// available or the request fails.
+  Future<String?> attachmentUrl(ChatAttachment attachment) async {
+    final public = attachment.publicUrl;
+    if (public != null && public.isNotEmpty) return public;
+    final path = attachment.storagePath;
+    if (path == null || path.isEmpty) return null;
+    try {
+      return await _service.createSignedChatAttachmentUrl(path);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Ported from `ChatDetailActionsDomain.updatePendingBooking`. Updates the
   /// booking status, posts a system message into the chat and refreshes the
   /// banner.
@@ -780,6 +899,39 @@ class ChatNotifier extends Notifier<ChatState> {
     }
   }
 
+  /// Ensures a thread with [passenger] exists and posts the system message that
+  /// tells them their booking was confirmed/declined. Mirrors the Swift
+  /// `MatchingPassengersForRideView.updateBooking` notification side
+  /// (`ensureChatThread` + `ensureSystemChatMessage`). Best-effort: a failure
+  /// here must not block the booking-status update that already succeeded.
+  Future<void> notifyBookingDecision({
+    required UserProfile passenger,
+    required String route,
+    required DateTime departureDate,
+    String? rideId,
+    required bool confirmed,
+  }) async {
+    final participantId = passenger.backendId;
+    if (participantId == null) return;
+    try {
+      final threadId = await _service.ensureChatThread(
+        route: route,
+        participantId: participantId,
+        rideId: rideId,
+      );
+      final systemText = confirmed
+          ? 'Система: заявка на поездку $route подтверждена.'
+          : 'Система: заявка на поездку $route отклонена.';
+      await _service.ensureSystemChatMessage(
+        threadId: threadId,
+        text: systemText,
+      );
+      if (_mounted) await loadChats();
+    } catch (_) {
+      // Best-effort, mirrors `_syncNewThread`.
+    }
+  }
+
   /// Marks the thread read locally and on the backend.
   void markRead(String threadId) {
     final thread = threadById(threadId);
@@ -808,13 +960,13 @@ class ChatNotifier extends Notifier<ChatState> {
     }
   }
 
-  /// Ported from `ChatRootView.deleteThread` — there is no hard delete; the
-  /// thread is hidden on the backend and removed from the visible list.
+  /// Deletes the thread for the current user — a real removal that, unlike
+  /// archiving, does not reappear in the archive on the next fetch (QA #68).
   void deleteThread(String threadId) {
     final thread = threadById(threadId);
     final backendId = thread?.backendId;
     if (backendId != null) {
-      _service.hideChat(backendId).ignore();
+      _service.setChatDeleted(backendId).ignore();
     }
     state = state.copyWith(
       threads: state.threads.where((t) => t.id != threadId).toList(),

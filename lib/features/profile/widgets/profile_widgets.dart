@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_dimens.dart';
 import '../../../theme/app_text.dart';
+import '../../../widgets/common.dart';
 
 /// Ported from `SettingsGroupCard` in `SharedUIComponents.swift`.
 class SettingsGroupCard extends StatelessWidget {
@@ -165,45 +166,40 @@ class ProfileAvatarView extends StatelessWidget {
     required this.initials,
     required this.size,
     this.avatarBytes,
+    this.avatarUrl,
   });
 
   final String initials;
   final double size;
   final Uint8List? avatarBytes;
+  final String? avatarUrl;
 
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
-    final bytes = avatarBytes;
-    if (bytes != null && bytes.isNotEmpty) {
-      return ClipOval(
-        child: Image.memory(
-          bytes,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
+    return buildCircularAvatar(
+      size: size,
+      avatarBytes: avatarBytes,
+      avatarUrl: avatarUrl,
+      fallback: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [hs.primary.withValues(alpha: 0.18), hs.tint],
+          ),
         ),
-      );
-    }
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [hs.primary.withValues(alpha: 0.18), hs.tint],
-        ),
-      ),
-      child: Text(
-        initials,
-        style: TextStyle(
-          fontSize: size * 0.34,
-          fontWeight: FontWeight.w700,
-          color: hs.primary,
+        child: Text(
+          initials,
+          style: TextStyle(
+            fontSize: size * 0.34,
+            fontWeight: FontWeight.w700,
+            color: hs.primary,
+          ),
         ),
       ),
     );

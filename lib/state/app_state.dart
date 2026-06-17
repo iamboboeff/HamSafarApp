@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
     show Supabase, AuthChangeEvent;
 
+import 'activity_state.dart';
 import '../core/preferences/preferences_store.dart';
 import '../core/push/push_notifications_service.dart';
 import '../core/supabase/supabase_service.dart';
@@ -11,6 +12,7 @@ import '../models/app_settings.dart';
 import '../models/app_tab.dart';
 import '../models/booked_trip.dart';
 import '../models/car_profile.dart';
+import '../models/ride_alert.dart';
 import '../models/location.dart';
 import '../models/passenger_request.dart';
 import '../models/residence_country.dart';
@@ -87,14 +89,17 @@ class SessionState {
 
 class SessionNotifier extends Notifier<SessionState> {
   StreamSubscription<String>? _pushTokenSub;
+  StreamSubscription<void>? _pushMessageSub;
 
   @override
   SessionState build() {
     _restore();
     _listenToAuthChanges();
     _listenToPushTokens();
+    _listenToPushMessages();
     ref.onDispose(() {
       _pushTokenSub?.cancel();
+      _pushMessageSub?.cancel();
     });
     return SessionState.guest;
   }
@@ -139,9 +144,24 @@ class SessionNotifier extends Notifier<SessionState> {
   void _listenToPushTokens() {
     _pushTokenSub =
         PushNotificationsService.instance.tokenStream.listen((token) {
-      if (ref.read(isAuthenticatedProvider)) {
+      // Read own state directly — going through `isAuthenticatedProvider`
+      // would form a cycle (sessionProvider → isAuthenticatedProvider →
+      // sessionProvider) and Riverpod refuses to resolve it.
+      if (state.isAuthenticated) {
         _service.registerPushDeviceToken(token).ignore();
       }
+    });
+  }
+
+  /// Refreshes the in-app notification feed (and booking statuses) whenever a
+  /// push arrives in the foreground or reopens the app, so the unread counter
+  /// and notification list reflect it instead of going stale (QA #23, #86).
+  void _listenToPushMessages() {
+    _pushMessageSub =
+        PushNotificationsService.instance.incomingMessages.listen((_) {
+      if (!state.isAuthenticated) return;
+      ref.read(activityProvider.notifier).refresh();
+      ref.read(bookedTripsProvider.notifier).refresh();
     });
   }
 
@@ -160,22 +180,50 @@ class SessionNotifier extends Notifier<SessionState> {
 
   Future<void> _syncPushTokenForActiveSession() async {
     final push = PushNotificationsService.instance;
+    // No prompt here — only re-register if the user already granted
+    // notifications. The system prompt is shown later, on the first
+    // contextually-relevant action (see [ensurePushPermission]).
+    await push.registerIfAlreadyGranted();
+    final token = push.latestToken ?? await push.currentDeviceToken();
+    if (token != null && state.isAuthenticated) {
+      _service.registerPushDeviceToken(token).ignore();
+    }
+  }
+
+  /// Shows the system push-permission prompt the first time notifications
+  /// become relevant — e.g. right after a driver publishes a ride or a
+  /// passenger sends a booking request, where they'll want to hear back.
+  /// iOS only surfaces the prompt on the first call; later calls are no-ops,
+  /// so callers can fire this freely after any such action.
+  Future<void> ensurePushPermission() async {
+    final push = PushNotificationsService.instance;
     await push.requestPermissionAndRegister();
     final token = push.latestToken ?? await push.currentDeviceToken();
-    if (token != null && ref.read(isAuthenticatedProvider)) {
+    if (token != null && state.isAuthenticated) {
       _service.registerPushDeviceToken(token).ignore();
     }
   }
 
   Future<void> signOut() async {
-    final token = PushNotificationsService.instance.latestToken;
+    // Deactivate the push token *before* clearing the session. After
+    // `_service.signOut()` there is no authenticated user, and
+    // `unregisterPushDeviceToken` no-ops in that state (it guards on
+    // `currentUser` and RLS would block the update anyway). Doing it afterwards
+    // left the row `is_active = true`, so the device kept receiving pushes for
+    // the signed-out account.
+    final push = PushNotificationsService.instance;
+    final token = push.latestToken ?? await push.currentDeviceToken();
+    if (token != null) {
+      try {
+        await _service.unregisterPushDeviceToken(token);
+      } catch (_) {
+        // Best-effort; sign-out must proceed regardless.
+      }
+    }
     try {
       await _service.signOut();
     } catch (_) {
       // The auth-state listener still resets to guest on success; ignore.
-    }
-    if (token != null) {
-      _service.unregisterPushDeviceToken(token).ignore();
     }
     state = const SessionState(
       isAuthenticated: false,
@@ -261,7 +309,8 @@ class BookedTripsNotifier extends Notifier<List<BookedTrip>> {
     try {
       state = await ref.read(supabaseServiceProvider).fetchBookedTrips();
     } catch (_) {
-      state = const [];
+      // Keep whatever is already loaded — a failed refresh must not blank the
+      // list (caused content to disappear during pull-to-refresh).
     }
   }
 
@@ -308,18 +357,69 @@ class MyPassengerRequestsNotifier extends Notifier<List<PassengerRequest>> {
       state =
           await ref.read(supabaseServiceProvider).fetchMyPassengerRequests();
     } catch (_) {
-      state = const [];
+      // Keep existing requests on a failed refresh (don't blank the list).
     }
   }
 
   Future<void> refresh() => _load();
 
   void add(PassengerRequest request) => state = [request, ...state];
+
+  /// Cancels the passenger's own request and drops it from the list (QA #61).
+  /// Rethrows so the UI can surface a failure.
+  Future<void> cancel(PassengerRequest request) async {
+    await ref.read(supabaseServiceProvider).cancelPassengerRequest(request);
+    state = state.where((r) => r.id != request.id).toList();
+  }
 }
 
 final myPassengerRequestsProvider =
     NotifierProvider<MyPassengerRequestsNotifier, List<PassengerRequest>>(
   MyPassengerRequestsNotifier.new,
+);
+
+/// The user's route ride-alerts ("notify me when a ride appears on this route").
+class RideAlertsNotifier extends Notifier<List<RideAlert>> {
+  @override
+  List<RideAlert> build() {
+    final isAuthenticated = ref.watch(isAuthenticatedProvider);
+    if (isAuthenticated) Future.microtask(_load);
+    return const [];
+  }
+
+  Future<void> _load() async {
+    try {
+      state = await ref.read(supabaseServiceProvider).fetchRideAlerts();
+    } catch (_) {
+      // Keep whatever is loaded.
+    }
+  }
+
+  Future<void> refresh() => _load();
+
+  RideAlert? alertFor(String fromCity, String toCity) {
+    for (final a in state) {
+      if (a.fromCity == fromCity && a.toCity == toCity) return a;
+    }
+    return null;
+  }
+
+  Future<void> create(String fromCity, String toCity) async {
+    final alert = await ref
+        .read(supabaseServiceProvider)
+        .createRideAlert(fromCity: fromCity, toCity: toCity);
+    if (!state.any((a) => a.id == alert.id)) state = [alert, ...state];
+  }
+
+  Future<void> remove(String id) async {
+    await ref.read(supabaseServiceProvider).deleteRideAlert(id);
+    state = state.where((a) => a.id != id).toList();
+  }
+}
+
+final rideAlertsProvider =
+    NotifierProvider<RideAlertsNotifier, List<RideAlert>>(
+  RideAlertsNotifier.new,
 );
 
 // ---------------------------------------------------------------------------
@@ -420,6 +520,67 @@ final availableTravelCountriesProvider = Provider<List<LocationCountry>>(
 );
 
 // ---------------------------------------------------------------------------
+// Blocking (App Store Guideline 1.2)
+// ---------------------------------------------------------------------------
+
+/// The set of user ids the signed-in user is in a block relationship with, in
+/// either direction. Other providers (chat, marketplace) watch this to hide
+/// blocked users' content. Loaded on sign-in and updated optimistically when
+/// the user blocks/unblocks someone.
+class BlockedUsersNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() {
+    final isAuthenticated = ref.watch(isAuthenticatedProvider);
+    if (isAuthenticated) {
+      Future.microtask(_load);
+    }
+    return <String>{};
+  }
+
+  Future<void> _load() async {
+    try {
+      state = await ref.read(supabaseServiceProvider).fetchBlockedUserIds();
+    } catch (_) {
+      // Best-effort — filtering simply does nothing until this succeeds.
+    }
+  }
+
+  bool isBlocked(String userId) => state.contains(userId);
+
+  /// Blocks [userId], hiding their content immediately. Rethrows on failure so
+  /// the caller can surface an error (state is rolled back first).
+  Future<void> block(String userId) async {
+    if (state.contains(userId)) return;
+    state = {...state, userId};
+    try {
+      await ref.read(supabaseServiceProvider).blockUser(userId);
+    } catch (e) {
+      state = {...state}..remove(userId);
+      rethrow;
+    }
+  }
+
+  /// Unblocks [userId]. Rethrows on failure (state is rolled back first).
+  Future<void> unblock(String userId) async {
+    if (!state.contains(userId)) return;
+    state = {...state}..remove(userId);
+    try {
+      await ref.read(supabaseServiceProvider).unblockUser(userId);
+    } catch (e) {
+      state = {...state, userId};
+      rethrow;
+    }
+  }
+
+  Future<void> refresh() => _load();
+}
+
+final blockedUserIdsProvider =
+    NotifierProvider<BlockedUsersNotifier, Set<String>>(
+  BlockedUsersNotifier.new,
+);
+
+// ---------------------------------------------------------------------------
 // Marketplace (rides + passenger requests + search history)
 // ---------------------------------------------------------------------------
 
@@ -459,6 +620,12 @@ class MarketplaceState {
 }
 
 class MarketplaceNotifier extends Notifier<MarketplaceState> {
+  // The full, unfiltered fetch results. `state` exposes these with blocked
+  // users removed; keeping the originals lets us re-filter on block/unblock
+  // without a network round-trip.
+  List<Ride> _allRides = const [];
+  List<PassengerRequest> _allRequests = const [];
+
   @override
   MarketplaceState build() {
     // Defer so the notifier is fully initialised before `_load` reads `state`.
@@ -467,7 +634,38 @@ class MarketplaceNotifier extends Notifier<MarketplaceState> {
     ref.listen<bool>(isAuthenticatedProvider, (_, isAuthed) {
       if (isAuthed) Future.microtask(_loadSearchHistory);
     });
+    // Re-filter the visible feed whenever the blocked set changes — no refetch.
+    ref.listen<Set<String>>(blockedUserIdsProvider, (_, _) => _applyBlocked());
     return MarketplaceState.empty;
+  }
+
+  List<Ride> _filterRides(List<Ride> rides) {
+    final blocked = ref.read(blockedUserIdsProvider);
+    if (blocked.isEmpty) return rides;
+    return rides
+        .where((r) =>
+            r.driver.backendId == null ||
+            !blocked.contains(r.driver.backendId))
+        .toList();
+  }
+
+  List<PassengerRequest> _filterRequests(List<PassengerRequest> requests) {
+    final blocked = ref.read(blockedUserIdsProvider);
+    if (blocked.isEmpty) return requests;
+    return requests
+        .where((r) =>
+            r.passenger.backendId == null ||
+            !blocked.contains(r.passenger.backendId))
+        .toList();
+  }
+
+  /// Re-derives the visible rides/requests from the cached full lists using the
+  /// current blocked set. Called when the blocked set changes.
+  void _applyBlocked() {
+    state = state.copyWith(
+      rides: _filterRides(_allRides),
+      passengerRequests: _filterRequests(_allRequests),
+    );
   }
 
   /// Mirrors `SupabaseService.fetchRides` / `fetchPassengerRequests`.
@@ -475,11 +673,16 @@ class MarketplaceNotifier extends Notifier<MarketplaceState> {
     final service = ref.read(supabaseServiceProvider);
     state = state.copyWith(isLoading: true);
     try {
-      final rides = await service.fetchRides();
-      final requests = await service.fetchPassengerRequests();
+      // Fetch rides and requests concurrently to halve the wait.
+      final results = await Future.wait([
+        service.fetchRides(),
+        service.fetchPassengerRequests(),
+      ]);
+      _allRides = results[0] as List<Ride>;
+      _allRequests = results[1] as List<PassengerRequest>;
       state = state.copyWith(
-        rides: rides,
-        passengerRequests: requests,
+        rides: _filterRides(_allRides),
+        passengerRequests: _filterRequests(_allRequests),
         isLoading: false,
       );
     } catch (_) {
@@ -509,6 +712,33 @@ class MarketplaceNotifier extends Notifier<MarketplaceState> {
 
   Future<void> refresh() => _load();
 
+  /// Like [refresh] but rethrows on failure so callers (e.g. the search flow)
+  /// can tell the user we're offline instead of silently showing an empty
+  /// result set (QA #59).
+  Future<void> refreshOrThrow() async {
+    final service = ref.read(supabaseServiceProvider);
+    state = state.copyWith(isLoading: true);
+    try {
+      // Fetch rides and requests concurrently — this is the search path, so the
+      // wait directly drives how long "Поиск" spins (slow-search fix).
+      final results = await Future.wait([
+        service.fetchRides(),
+        service.fetchPassengerRequests(),
+      ]);
+      _allRides = results[0] as List<Ride>;
+      _allRequests = results[1] as List<PassengerRequest>;
+      state = state.copyWith(
+        rides: _filterRides(_allRides),
+        passengerRequests: _filterRequests(_allRequests),
+        isLoading: false,
+      );
+      Future.microtask(_loadSearchHistory);
+    } catch (_) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
   /// Mirrors `AppSearchHistoryDomain.recordSearch` — newest first, de-duped,
   /// capped at 10 entries — and persists to Supabase (`search_history`).
   void recordSearch(LocationSearchHistoryItem item) {
@@ -529,14 +759,14 @@ class MarketplaceNotifier extends Notifier<MarketplaceState> {
 
   /// Optimistically prepends a freshly published ride.
   void addRide(Ride ride) {
-    state = state.copyWith(rides: [ride, ...state.rides]);
+    _allRides = [ride, ..._allRides];
+    state = state.copyWith(rides: _filterRides(_allRides));
   }
 
   /// Optimistically prepends a freshly published passenger request.
   void addPassengerRequest(PassengerRequest request) {
-    state = state.copyWith(
-      passengerRequests: [request, ...state.passengerRequests],
-    );
+    _allRequests = [request, ..._allRequests];
+    state = state.copyWith(passengerRequests: _filterRequests(_allRequests));
   }
 }
 
@@ -604,6 +834,35 @@ class SelectedTabNotifier extends Notifier<AppTab> {
 
 final selectedTabProvider =
     NotifierProvider<SelectedTabNotifier, AppTab>(SelectedTabNotifier.new);
+
+/// Optional handler the foreground tab can register so the shell's Android
+/// system-back button steps through in-tab state (e.g. the create-ride
+/// wizard) instead of backgrounding the app. Returns true when it consumed
+/// the back press. Only the create tab registers one today.
+class InTabBackHandlerNotifier extends Notifier<bool Function()?> {
+  @override
+  bool Function()? build() => null;
+
+  void set(bool Function()? handler) => state = handler;
+}
+
+final inTabBackHandlerProvider =
+    NotifierProvider<InTabBackHandlerNotifier, bool Function()?>(
+  InTabBackHandlerNotifier.new,
+);
+
+/// Bumped every time the "+" (create) tab is tapped so the create-ride screen
+/// can reset its wizard to the start — tapping "+" always opens a fresh form,
+/// never a half-finished step left over from last time.
+class CreateTabResetNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void trigger() => state++;
+}
+
+final createTabResetProvider =
+    NotifierProvider<CreateTabResetNotifier, int>(CreateTabResetNotifier.new);
 
 class SelectedHomeSectionNotifier extends Notifier<HomeListingSection> {
   @override

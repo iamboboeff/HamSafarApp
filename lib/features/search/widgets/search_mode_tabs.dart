@@ -20,18 +20,21 @@ class SearchModeTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _TabItem(
-          title: 'Водители',
-          icon: Icons.airline_seat_recline_normal,
-          isSelected: selection == HomeListingSection.rides,
-          onTap: () => onSelect(HomeListingSection.rides),
+        Expanded(
+          child: _TabItem(
+            title: 'Водители',
+            icon: Icons.airline_seat_recline_normal,
+            isSelected: selection == HomeListingSection.rides,
+            onTap: () => onSelect(HomeListingSection.rides),
+          ),
         ),
-        const SizedBox(width: 28),
-        _TabItem(
-          title: 'Пассажиры',
-          icon: Icons.people_outline,
-          isSelected: selection == HomeListingSection.passengers,
-          onTap: () => onSelect(HomeListingSection.passengers),
+        Expanded(
+          child: _TabItem(
+            title: 'Пассажиры',
+            icon: Icons.people_outline,
+            isSelected: selection == HomeListingSection.passengers,
+            onTap: () => onSelect(HomeListingSection.passengers),
+          ),
         ),
       ],
     );
@@ -61,7 +64,7 @@ class _TabItem extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 16, color: color),
               const SizedBox(width: 8),
@@ -74,7 +77,6 @@ class _TabItem extends StatelessWidget {
           const SizedBox(height: 10),
           Container(
             height: 3,
-            width: 64,
             decoration: BoxDecoration(
               color: isSelected ? context.hs.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(100),

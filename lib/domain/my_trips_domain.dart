@@ -55,8 +55,15 @@ abstract final class MyTripsDomain {
         );
     }
 
-    return [...tripItems, ...requestItems]
-      ..sort((a, b) => b.departureDate.compareTo(a.departureDate));
+    final items = [...tripItems, ...requestItems];
+    // Upcoming trips/requests read best nearest-first; history reads best
+    // most-recent-first (QA #84).
+    if (section == TripSection.history) {
+      items.sort((a, b) => b.departureDate.compareTo(a.departureDate));
+    } else {
+      items.sort((a, b) => a.departureDate.compareTo(b.departureDate));
+    }
+    return items;
   }
 
   static String emptyStateTitle(TripSection section) => switch (section) {

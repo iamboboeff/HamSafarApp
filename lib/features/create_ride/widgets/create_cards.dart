@@ -346,7 +346,7 @@ class CreateSummaryMetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hs = context.hs;
     return Container(
-      constraints: const BoxConstraints(minHeight: 118),
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: hs.secondarySurface.withValues(alpha: 0.88),

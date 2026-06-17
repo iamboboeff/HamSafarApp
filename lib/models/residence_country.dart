@@ -8,8 +8,13 @@ enum ResidenceCountry {
     ResidenceCountry.tajikistan => 'Таджикистан',
   };
 
-  /// The Swift app always reports `TJS` regardless of the country.
-  String get currencyCode => 'TJS';
+  /// Currency code per country so prices can be shown in the right currency
+  /// (Tajikistan → TJS, Uzbekistan → UZS). Previously hardcoded to TJS, which
+  /// made UZS impossible to represent (QA #99).
+  String get currencyCode => switch (this) {
+    ResidenceCountry.uzbekistan => 'UZS',
+    ResidenceCountry.tajikistan => 'TJS',
+  };
 
   /// Mirrors `formatAmount` — decimal grouping with a space separator and the
   /// currency code appended (e.g. `1 200 TJS`).

@@ -29,6 +29,7 @@ class ChatThreadListView extends StatelessWidget {
   Widget build(BuildContext context) {
     final hs = context.hs;
     return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
       itemCount: threads.length,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
@@ -36,22 +37,24 @@ class ChatThreadListView extends StatelessWidget {
         final thread = threads[index];
         return Dismissible(
           key: ValueKey(thread.id),
+          // Swipe LEFT archives ("В архив") — the tester expected this gesture
+          // to archive, not delete (QA #64). Swipe RIGHT deletes.
           background: _swipeBackground(
             context,
             alignment: Alignment.centerLeft,
-            color: isArchiveList ? hs.mint : hs.primary,
-            icon: isArchiveList ? Icons.unarchive : Icons.archive,
-            label: isArchiveList ? 'Убрать из архива' : 'В архив',
-          ),
-          secondaryBackground: _swipeBackground(
-            context,
-            alignment: Alignment.centerRight,
             color: Colors.red,
             icon: Icons.delete,
             label: 'Удалить',
           ),
+          secondaryBackground: _swipeBackground(
+            context,
+            alignment: Alignment.centerRight,
+            color: isArchiveList ? hs.mint : hs.primary,
+            icon: isArchiveList ? Icons.unarchive : Icons.archive,
+            label: isArchiveList ? 'Убрать из архива' : 'В архив',
+          ),
           confirmDismiss: (direction) async {
-            if (direction == DismissDirection.startToEnd) {
+            if (direction == DismissDirection.endToStart) {
               onArchiveToggle(thread);
               return false;
             }

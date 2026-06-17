@@ -5,7 +5,6 @@ import '../../models/user_profile.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/glass_card.dart';
 
@@ -95,7 +94,6 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
             child: Column(

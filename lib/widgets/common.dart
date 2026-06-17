@@ -1,11 +1,48 @@
 import 'dart:typed_data';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_dimens.dart';
 import '../theme/app_text.dart';
 import 'buttons.dart';
+
+/// Renders a circular avatar from, in priority order: locally-picked
+/// [avatarBytes] (immediate preview before upload), a cached remote
+/// [avatarUrl] (Storage URL, cached between launches), or [fallback] (shown
+/// while the URL loads, on error, and when neither image is available).
+Widget buildCircularAvatar({
+  required double size,
+  required Widget fallback,
+  Uint8List? avatarBytes,
+  String? avatarUrl,
+}) {
+  if (avatarBytes != null && avatarBytes.isNotEmpty) {
+    return ClipOval(
+      child: Image.memory(
+        avatarBytes,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      ),
+    );
+  }
+  if (avatarUrl != null && avatarUrl.isNotEmpty) {
+    return ClipOval(
+      child: CachedNetworkImage(
+        imageUrl: avatarUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (_, _) => fallback,
+        errorWidget: (_, _, _) => fallback,
+      ),
+    );
+  }
+  return fallback;
+}
 
 /// Ported from `SectionHeader` in `SharedUIComponents.swift`.
 class SectionHeader extends StatelessWidget {
@@ -155,12 +192,10 @@ class CompactRoutePoint extends StatelessWidget {
   }
 }
 
-/// Wrap an avatar widget in a [Hero] so it animates between screens when
-/// the same user appears (e.g. chat list row -> chat detail header -> public
-/// profile). When [id] is null the avatar is returned as-is — no Hero, no
-/// crash. Tag format is `avatar-$id`, shared across the chain.
-Widget heroAvatar({required String? id, required Widget child}) =>
-    id == null ? child : Hero(tag: 'avatar-$id', child: child);
+/// Returns [child] as-is. Hero animation deliberately disabled — the flying
+/// avatar between screens (chat list → profile) looked jarring; plain iOS
+/// slide transition is cleaner.
+Widget heroAvatar({required String? id, required Widget child}) => child;
 
 /// Ported from `ProfileAvatar` in `RideUIComponents.swift`. When [avatarBytes]
 /// is non-null the photo is rendered as a clipped circle; otherwise the
@@ -170,42 +205,37 @@ class ProfileAvatar extends StatelessWidget {
     super.key,
     required this.initials,
     this.avatarBytes,
+    this.avatarUrl,
     this.size = 56,
   });
 
   final String initials;
   final Uint8List? avatarBytes;
+  final String? avatarUrl;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
-    final bytes = avatarBytes;
-    if (bytes != null && bytes.isNotEmpty) {
-      return ClipOval(
-        child: Image.memory(
-          bytes,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
+    return buildCircularAvatar(
+      size: size,
+      avatarBytes: avatarBytes,
+      avatarUrl: avatarUrl,
+      fallback: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: hs.primary.withValues(alpha: 0.14),
+          shape: BoxShape.circle,
         ),
-      );
-    }
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: hs.primary.withValues(alpha: 0.14),
-        shape: BoxShape.circle,
-      ),
-      child: Text(
-        initials,
-        style: TextStyle(
-          fontSize: size * 0.32,
-          fontWeight: FontWeight.w700,
-          color: hs.primary,
+        child: Text(
+          initials,
+          style: TextStyle(
+            fontSize: size * 0.32,
+            fontWeight: FontWeight.w700,
+            color: hs.primary,
+          ),
         ),
       ),
     );
@@ -234,7 +264,7 @@ class RatingPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final widget in leading) ...[widget, const SizedBox(width: 8)],
-          Icon(Icons.star, size: 13, color: hs.warm),
+          Icon(Icons.star, size: 13, color: hs.star),
           const SizedBox(width: 4),
           Text(rating, style: HSText.captionSemibold),
         ],
@@ -307,10 +337,7 @@ class BleedDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 1,
-      color: context.hs.stroke.withValues(alpha: 0.85),
-    );
+    return Container(height: 1, color: context.hs.stroke);
   }
 }
 

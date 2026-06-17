@@ -11,9 +11,14 @@ import 'supabase_rows.dart' show BookingRow, RideRow;
 import 'supabase_service.dart' show SupabaseServiceError;
 
 class _CounterpartProfile {
-  const _CounterpartProfile({required this.name, this.avatarBytes});
+  const _CounterpartProfile({
+    required this.name,
+    this.avatarBytes,
+    this.avatarUrl,
+  });
   final String name;
   final Uint8List? avatarBytes;
+  final String? avatarUrl;
 }
 
 /// Ported from `SupabaseServiceChat.swift` — the chat backend layer: thread /
@@ -95,9 +100,18 @@ class SupabaseChatService {
 
   /// Maps `profiles.id` → display name + avatar bytes. Mirrors
   /// `enrichedProfilesByID` for the only fields chat needs.
-  Future<Map<String, _CounterpartProfile>> _fetchProfileNamesById() async {
-    final rows =
-        await _client.from('profiles').select('id,full_name,avatar_url');
+  Future<Map<String, _CounterpartProfile>> _fetchProfileNamesById(
+    Iterable<String> ids,
+  ) async {
+    // Fetch only the participants we need — previously this pulled the ENTIRE
+    // profiles table (with avatar bytes) on every chat fetch, which runs once
+    // per incoming/sent message and per realtime tick.
+    final unique = ids.toSet().toList();
+    if (unique.isEmpty) return {};
+    final rows = await _client
+        .from('profiles')
+        .select('id,full_name,avatar_url')
+        .inFilter('id', unique);
     final map = <String, _CounterpartProfile>{};
     for (final raw in rows) {
       final id = raw['id'] as String?;
@@ -106,6 +120,8 @@ class SupabaseChatService {
         name: (raw['full_name'] as String?) ?? 'Чат',
         avatarBytes:
             UserProfile.decodeAvatarUrl(raw['avatar_url'] as String?),
+        avatarUrl:
+            UserProfile.avatarUrlFromColumn(raw['avatar_url'] as String?),
       );
     }
     return map;
@@ -132,7 +148,8 @@ class SupabaseChatService {
             .select('id,thread_id,sender_id,kind,created_at,body'))
         .map(ChatMessageRow.new)
         .toList();
-    final profileNames = await _fetchProfileNamesById();
+    final profileNames =
+        await _fetchProfileNamesById(participantRows.map((p) => p.userId));
 
     final participantUserIds =
         participantRows.map((p) => p.userId).toSet().toList();
@@ -177,6 +194,9 @@ class SupabaseChatService {
           latestContent.attachment?.previewText ?? latestContent.text;
       final latestDate = latestMessage?.createdAt ?? row.createdAt;
       final state = stateByThreadId[row.id];
+      // Skip chats the user has deleted — unlike archived (is_hidden) ones,
+      // these must not reappear in any list (QA #68).
+      if (state?.isDeleted == true) continue;
       final counterpartPresence = counterpartId == null
           ? null
           : presence(
@@ -216,6 +236,9 @@ class SupabaseChatService {
             avatarBytes: counterpartId == null
                 ? null
                 : profileNames[counterpartId]?.avatarBytes,
+            avatarUrl: counterpartId == null
+                ? null
+                : profileNames[counterpartId]?.avatarUrl,
             messages: const [],
           ),
           latestDate,
@@ -265,7 +288,8 @@ class SupabaseChatService {
         .map((p) => p.userId)
         .cast<String?>()
         .firstWhere((_) => true, orElse: () => null);
-    final profileNames = await _fetchProfileNamesById();
+    final profileNames =
+        await _fetchProfileNamesById(participantRows.map((p) => p.userId));
     final presenceRows = counterpartId == null
         ? <ChatPresenceRow>[]
         : (await _client
@@ -320,6 +344,9 @@ class SupabaseChatService {
       avatarBytes: counterpartId == null
           ? null
           : profileNames[counterpartId]?.avatarBytes,
+      avatarUrl: counterpartId == null
+          ? null
+          : profileNames[counterpartId]?.avatarUrl,
       messages: const [],
     );
   }
@@ -368,7 +395,8 @@ class SupabaseChatService {
         .map((p) => p.userId)
         .cast<String?>()
         .firstWhere((_) => true, orElse: () => null);
-    final profileNames = await _fetchProfileNamesById();
+    final profileNames =
+        await _fetchProfileNamesById(participantRows.map((p) => p.userId));
     final presenceRows = counterpartId == null
         ? <ChatPresenceRow>[]
         : (await _client
@@ -434,6 +462,9 @@ class SupabaseChatService {
       avatarBytes: counterpartId == null
           ? null
           : profileNames[counterpartId]?.avatarBytes,
+      avatarUrl: counterpartId == null
+          ? null
+          : profileNames[counterpartId]?.avatarUrl,
       messages: threadMessages,
     );
   }
@@ -834,6 +865,22 @@ class SupabaseChatService {
   /// Ported from `hideChat`.
   Future<void> hideChat(String threadId) =>
       setChatHidden(threadId: threadId, isHidden: true);
+
+  /// Permanently removes the chat from the current user's lists (QA #68).
+  /// Unlike [hideChat]/archiving (is_hidden), a deleted chat is filtered out of
+  /// every fetch and does not reappear in the archive.
+  Future<void> setChatDeleted(String threadId) async {
+    final userId = _requireUserId;
+    await _client.from('chat_user_states').upsert(
+      {
+        'thread_id': threadId,
+        'user_id': userId,
+        'is_deleted': true,
+        'is_hidden': true,
+      },
+      onConflict: 'thread_id,user_id',
+    );
+  }
 
   /// Ported from `setChatHidden`.
   Future<void> setChatHidden({

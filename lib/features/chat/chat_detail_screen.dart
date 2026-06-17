@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/preferences/preferences_store.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/chat.dart';
 import '../../models/user_profile.dart';
+import '../../state/app_state.dart';
 import '../../state/chat_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
@@ -32,44 +38,157 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
   final _composer = TextEditingController();
   final _scrollController = ScrollController();
   bool _loadingOlder = false;
+  // True while the thread's messages are being fetched, so we can show a
+  // spinner instead of a blank screen for the 2-3s it takes to load.
+  bool _loadingThread = true;
+
+  // --- Telegram-style scroll + unread divider ---
+  // Whether the user is near the bottom; new messages auto-scroll only then, so
+  // we never yank them down while they read history.
+  bool _atBottom = true;
+  int _lastMsgCount = 0;
+  // Unread count captured BEFORE markRead, so we can place the "new messages"
+  // divider above the first unread message and keep it stable while viewing.
+  int _unreadAtOpen = 0;
+  String? _firstUnreadId;
+  bool _initialScrollDone = false;
+  final GlobalKey _unreadDividerKey = GlobalKey();
+
+  // Presence: heartbeat so the other person sees "в сети", and a debounced
+  // typing flag for "печатает...".
+  Timer? _presenceTimer;
+  Timer? _typingClear;
+  bool _typingPublished = false;
+
+  /// Captured in [initState] so [dispose] can clear the active thread without
+  /// touching `ref` — Riverpod forbids using `ref` once the element is
+  /// unmounted.
+  late final ChatNotifier _notifier;
 
   @override
   void initState() {
     super.initState();
     final notifier = ref.read(chatProvider.notifier);
+    _notifier = notifier;
     notifier.setActiveThread(widget.threadId);
+    // Capture unread BEFORE markRead so we can show the "new messages" divider.
+    _unreadAtOpen = notifier.threadById(widget.threadId)?.unreadCount ?? 0;
     final draft = notifier.consumePendingDraft(widget.threadId);
     if (draft != null) _composer.text = draft;
     _scrollController.addListener(_onScroll);
+    // Presence: mark online now + heartbeat (the row goes stale after ~18s, so
+    // refresh under that), and publish typing while composing.
+    notifier.updatePresence(widget.threadId);
+    _presenceTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (mounted) _notifier.updatePresence(widget.threadId);
+    });
+    _composer.addListener(_onComposerTyping);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       notifier.markRead(widget.threadId);
-      _jumpToBottom();
-      await notifier.loadThread(widget.threadId);
+      try {
+        await notifier.loadThread(widget.threadId);
+      } finally {
+        if (mounted) {
+          _resolveUnreadDivider();
+          setState(() => _loadingThread = false);
+        }
+      }
       if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+      // After the list (with any unread divider) is laid out, position it at
+      // the first unread message like Telegram — otherwise at the bottom.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _initialScroll());
     });
   }
 
   @override
   void dispose() {
-    ref.read(chatProvider.notifier).clearActiveThread();
+    _presenceTimer?.cancel();
+    _typingClear?.cancel();
+    _notifier.clearPresence();
+    _notifier.clearActiveThread();
     _composer.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _jumpToBottom() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  void _onComposerTyping() {
+    final typing = _composer.text.trim().isNotEmpty;
+    if (typing) {
+      if (!_typingPublished) {
+        _typingPublished = true;
+        _notifier.updatePresence(widget.threadId, typing: true);
+      }
+      _typingClear?.cancel();
+      _typingClear = Timer(const Duration(seconds: 4), _stopTyping);
+    } else if (_typingPublished) {
+      _stopTyping();
+    }
   }
 
-  /// Loads the preceding page of messages when the user scrolls near the top,
-  /// preserving the visible position so the list does not jump.
+  void _stopTyping() {
+    _typingClear?.cancel();
+    if (!_typingPublished) return;
+    _typingPublished = false;
+    _notifier.updatePresence(widget.threadId, typing: false);
+  }
+
+  void _scrollToBottom({bool animate = true}) {
+    if (!_scrollController.hasClients) return;
+    final target = _scrollController.position.maxScrollExtent;
+    if (animate) {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(target);
+    }
+    _atBottom = true;
+  }
+
   void _onScroll() {
-    if (_loadingOlder || !_scrollController.hasClients) return;
-    if (_scrollController.position.pixels <= 80) {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    _atBottom = pos.pixels >= pos.maxScrollExtent - 120;
+    // Load the preceding page when the user scrolls near the top, preserving
+    // the visible position so the list does not jump.
+    if (!_loadingOlder && pos.pixels <= 80) {
       _loadOlderMessages();
     }
+  }
+
+  /// Picks the message the "Новые сообщения" divider sits above — the first of
+  /// the last [_unreadAtOpen] incoming messages.
+  void _resolveUnreadDivider() {
+    if (_unreadAtOpen <= 0) return;
+    final msgs = _notifier.threadById(widget.threadId)?.messages ?? const [];
+    var seen = 0;
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].isIncoming) {
+        seen++;
+        if (seen == _unreadAtOpen) {
+          _firstUnreadId = msgs[i].id;
+          return;
+        }
+      }
+    }
+  }
+
+  /// On open, scroll to the unread divider (Telegram-style) if there is one,
+  /// otherwise jump straight to the latest message.
+  void _initialScroll() {
+    final ctx = _unreadDividerKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.12,
+        duration: const Duration(milliseconds: 220),
+      );
+    } else {
+      _scrollToBottom(animate: false);
+    }
+    _initialScrollDone = true;
   }
 
   Future<void> _loadOlderMessages() async {
@@ -96,19 +215,40 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     if (text.isEmpty) return;
     ref.read(chatProvider.notifier).sendMessage(widget.threadId, text);
     _composer.clear();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOut,
-      );
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   /// Ported from `ChatDetailView.handleSelectedPhoto` — opens the photo
   /// picker, validates and uploads the file, and sends an attachment message.
   Future<void> _pickAndSendPhoto() async {
+    // First-time soft pre-prompt explaining why we need photo access, before
+    // the system picker opens (QA #100 — the modern Android Photo Picker does
+    // not surface its own permission dialog).
+    if (!await ChatAttachmentPromptStore.hasShown()) {
+      if (!mounted) return;
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Доступ к фото'),
+          content: const Text(
+            'Разрешите доступ к фотографиям, чтобы прикреплять их в чат.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Разрешить'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+      await ChatAttachmentPromptStore.markShown();
+    }
+
     final picker = ImagePicker();
     final XFile? xfile;
     try {
@@ -138,14 +278,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOut,
-      );
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   String _mimeFromExtension(String name) {
@@ -155,6 +288,72 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     if (lower.endsWith('.heic')) return 'image/heic';
     if (lower.endsWith('.heif')) return 'image/heif';
     return 'image/jpeg';
+  }
+
+  /// Blocks or unblocks the chat partner (App Store Guideline 1.2). Blocking
+  /// hides the conversation both ways and returns to the chat list.
+  Future<void> _toggleBlock(ChatThread thread, bool isBlocked) async {
+    final id = thread.participantBackendId;
+    if (id == null) return;
+    final notifier = ref.read(blockedUserIdsProvider.notifier);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    if (isBlocked) {
+      try {
+        await notifier.unblock(id);
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Пользователь разблокирован.')),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось разблокировать. Попробуйте ещё раз.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Заблокировать пользователя?'),
+        content: Text(
+          'Вы больше не увидите сообщения, поездки и запросы от ${thread.name}, '
+          'а этот пользователь — ваши. Чат скроется из списка. Разблокировать '
+          'можно в настройках приватности.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Заблокировать'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await notifier.block(id);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Пользователь заблокирован.')),
+      );
+      navigator.pop();
+    } catch (_) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Не удалось заблокировать. Попробуйте ещё раз.'),
+        ),
+      );
+    }
   }
 
   void _openPartnerProfile(ChatThread thread) {
@@ -167,9 +366,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       rating: 0,
       completedTrips: 0,
       avatarBytes: thread.avatarBytes,
+      avatarUrl: thread.avatarUrl,
     );
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      HSRoute<void>(
         builder: (_) => UserPublicProfileScreen(
           userId: backendId,
           fallback: fallback,
@@ -237,6 +437,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     }
 
     final groups = _groupedMessages(thread);
+    final partnerBlocked = thread.participantBackendId != null &&
+        ref.watch(blockedUserIdsProvider).contains(thread.participantBackendId);
+
+    // Auto-scroll to the newest message when one arrives — but only if the user
+    // is already at the bottom, so reading history is never interrupted.
+    final msgCount = thread.messages.length;
+    if (msgCount > _lastMsgCount) {
+      final wasAtBottom = _atBottom;
+      _lastMsgCount = msgCount;
+      if (_initialScrollDone && wasAtBottom) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _scrollToBottom();
+          ref.read(chatProvider.notifier).markRead(widget.threadId);
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: hs.background,
@@ -257,6 +474,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                   child: ProfileAvatar(
                     initials: thread.initials,
                     avatarBytes: thread.avatarBytes,
+                    avatarUrl: thread.avatarUrl,
                     size: 36,
                   ),
                 ),
@@ -298,25 +516,51 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
               );
             },
           ),
+          if (thread.participantBackendId != null)
+            PopupMenuButton<String>(
+              tooltip: 'Ещё',
+              onSelected: (value) {
+                if (value == 'profile') {
+                  _openPartnerProfile(thread);
+                } else if (value == 'block') {
+                  _toggleBlock(thread, partnerBlocked);
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'profile', child: Text('Профиль')),
+                PopupMenuItem(
+                  value: 'block',
+                  child: Text(
+                    partnerBlocked ? 'Разблокировать' : 'Заблокировать',
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: ListView(
-              controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-              children: [
-                for (final group in groups) ...[
-                  MessageDateDivider(title: group.title),
-                  for (final message in group.messages)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _MessageRow(message: message),
-                    ),
-                ],
-              ],
-            ),
+            child: _loadingThread && thread.messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                    children: [
+                      for (final group in groups) ...[
+                        MessageDateDivider(title: group.title),
+                        for (final message in group.messages) ...[
+                          if (_firstUnreadId != null &&
+                              message.id == _firstUnreadId)
+                            _NewMessagesDivider(key: _unreadDividerKey),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _MessageRow(message: message),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
           ),
           if (chatState.pendingBooking != null)
             PendingBookingBanner(
@@ -328,7 +572,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
               onDecline: () => ref
                   .read(chatProvider.notifier)
                   .updatePendingBooking(
-                      threadId: widget.threadId, status: 'declined'),
+                      threadId: widget.threadId, status: 'cancelled'),
             ),
           if (chatState.reviewPrompt != null)
             ReviewPromptBanner(
@@ -350,16 +594,17 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
 
 /// Ported from `ChatMessageRow` in `ChatDetailSections.swift` — aligns the
 /// bubble depending on whether the message is system / incoming / outgoing.
-class _MessageRow extends StatelessWidget {
+class _MessageRow extends ConsumerWidget {
   const _MessageRow({required this.message});
 
   final ChatMessage message;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (message.kind == ChatMessageKind.system) {
       return MessageBubble(message: message);
     }
+    final attachment = message.attachment;
     return Row(
       children: [
         if (!message.isIncoming) const Spacer(flex: 1),
@@ -369,11 +614,121 @@ class _MessageRow extends StatelessWidget {
             alignment: message.isIncoming
                 ? Alignment.centerLeft
                 : Alignment.centerRight,
-            child: MessageBubble(message: message),
+            child: MessageBubble(
+              message: message,
+              onOpenAttachment: attachment == null
+                  ? null
+                  : () => _openAttachment(context, ref, attachment),
+            ),
           ),
         ),
         if (message.isIncoming) const Spacer(flex: 1),
       ],
+    );
+  }
+
+  /// Resolves the attachment to a viewable URL and opens it — photos in an
+  /// in-app viewer, other files via the system handler (QA #77).
+  Future<void> _openAttachment(
+    BuildContext context,
+    WidgetRef ref,
+    ChatAttachment attachment,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final url = await ref.read(chatProvider.notifier).attachmentUrl(attachment);
+    if (url == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Не удалось открыть вложение.')),
+      );
+      return;
+    }
+    if (attachment.kind == ChatAttachmentKind.photo) {
+      navigator.push(
+        HSRoute<void>(
+          builder: (_) =>
+              _AttachmentImageViewer(url: url, title: attachment.title),
+        ),
+      );
+      return;
+    }
+    final ok = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ok) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Не удалось открыть вложение.')),
+      );
+    }
+  }
+}
+
+/// Full-screen, zoomable viewer for a photo attachment (QA #77).
+class _AttachmentImageViewer extends StatelessWidget {
+  const _AttachmentImageViewer({required this.url, required this.title});
+
+  final String url;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.8,
+          maxScale: 4,
+          child: Image.network(
+            url,
+            fit: BoxFit.contain,
+            loadingBuilder: (context, child, progress) => progress == null
+                ? child
+                : const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+            errorBuilder: (context, error, stack) => const Center(
+              child: Text(
+                'Не удалось загрузить изображение.',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Новые сообщения" separator shown above the first unread message, like
+/// Telegram's unread divider.
+class _NewMessagesDivider extends StatelessWidget {
+  const _NewMessagesDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    final lineColor = hs.primary.withValues(alpha: 0.35);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Expanded(child: Divider(color: lineColor, thickness: 1)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              'Новые сообщения',
+              style: HSText.caption2Bold.copyWith(color: hs.primary),
+            ),
+          ),
+          Expanded(child: Divider(color: lineColor, thickness: 1)),
+        ],
+      ),
     );
   }
 }

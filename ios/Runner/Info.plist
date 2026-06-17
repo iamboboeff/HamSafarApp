@@ -2,6 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<!-- We pull `firebase_messaging` in for Android FCM only. On iOS the
+		     push path is the native APNs MethodChannel in AppDelegate.swift,
+		     and we never call `Firebase.initializeApp()` from Dart. Without
+		     these two keys, the Firebase Messaging iOS pod auto-swizzles the
+		     app delegate and tries to read GoogleService-Info.plist on launch,
+		     which hangs the splash because no Firebase iOS app exists for
+		     this bundle. -->
+		<key>FirebaseAppDelegateProxyEnabled</key>
+		<false/>
+		<key>FirebaseMessagingAutoInitEnabled</key>
+		<false/>
+		<!-- Skip the App Store Connect Export Compliance question on every
+		     upload. We only use system-provided HTTPS / TLS, which is exempt
+		     under U.S. export regulations (Export Administration Regulations,
+		     §740.17(b)(1)). NO == "no non-exempt encryption", so ASC marks
+		     the build "Ready to Test" the moment it finishes processing. -->
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>

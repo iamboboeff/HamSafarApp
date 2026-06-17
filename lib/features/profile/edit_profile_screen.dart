@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -9,7 +8,6 @@ import '../../models/user_profile.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/buttons.dart';
 import 'widgets/profile_widgets.dart';
 
@@ -49,9 +47,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     try {
       file = await picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
+        // Avatars display at most ~156px — downscale at pick time so the upload
+        // (and every later load in chats/trips) stays tiny (~20-40 KB).
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 80,
       );
     } catch (_) {
       if (!mounted) return;
@@ -79,16 +79,69 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   Future<void> _pickBirthDate() async {
     final now = DateTime.now();
+    // Users must be 18+, so the latest selectable birth date is exactly
+    // 18 years ago — the picker can't offer anything younger.
+    final latestAllowed = DateTime(now.year - 18, now.month, now.day);
+    final initial = _birthDate ?? DateTime(now.year - 24, now.month, now.day);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _birthDate ?? DateTime(now.year - 24, now.month, now.day),
+      initialDate: initial.isAfter(latestAllowed) ? latestAllowed : initial,
       firstDate: DateTime(1940),
-      lastDate: now,
+      lastDate: latestAllowed,
     );
     if (picked != null) setState(() => _birthDate = picked);
   }
 
+  bool _isValidEmail(String value) =>
+      RegExp(r'^[\w.+-]+@[\w-]+\.[\w.-]+$').hasMatch(value);
+
+  int _ageInYears(DateTime birth) {
+    final now = DateTime.now();
+    var years = now.year - birth.year;
+    if (now.month < birth.month ||
+        (now.month == birth.month && now.day < birth.day)) {
+      years--;
+    }
+    return years;
+  }
+
+  Future<void> _showValidationDialog(String message) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Проверьте данные'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Ок'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _save() async {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      await _showValidationDialog('Введите имя.');
+      return;
+    }
+    if (name.length > 50) {
+      await _showValidationDialog('Имя не должно превышать 50 символов.');
+      return;
+    }
+    final birth = _birthDate;
+    if (birth != null && _ageInYears(birth) < 18) {
+      await _showValidationDialog('Возраст должен быть не меньше 18 лет.');
+      return;
+    }
+    final email = _email.text.trim();
+    if (email.isNotEmpty && !_isValidEmail(email)) {
+      await _showValidationDialog('Введите корректный электронный адрес.');
+      return;
+    }
+
     setState(() => _isSaving = true);
     final profile = ref.read(currentUserProvider);
     String title = 'Профиль обновлён';
@@ -96,9 +149,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     try {
       await ref.read(sessionProvider.notifier).updateProfile(
             profile.copyWith(
-              name: _name.text.trim(),
+              name: name,
               phoneNumber: _phone.text.trim(),
-              email: _email.text.trim(),
+              email: email,
               birthDate: _birthDate,
               gender: _gender,
               avatarBytes: _avatarChanged ? _avatarBytes : profile.avatarBytes,
@@ -131,12 +184,22 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(title: const Text('Редактировать профиль')),
-      body: Stack(
+      // Tap outside any field to dismiss the keyboard (the phone keyboard has
+      // no "done" affordance and otherwise stays up over the Save button).
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+            // Left/right safe-area insets for landscape notch / Island (QA #93).
+            padding: EdgeInsets.fromLTRB(
+              20 + MediaQuery.paddingOf(context).left,
+              20,
+              20 + MediaQuery.paddingOf(context).right,
+              120,
+            ),
             child: Column(
               children: [
                 GestureDetector(
@@ -147,7 +210,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     children: [
                       ProfileAvatarView(
                         initials: ref.watch(currentUserProvider).initials,
-                        avatarBytes: _avatarBytes,
+                        avatarBytes: _avatarChanged ? _avatarBytes : null,
+                        avatarUrl: _avatarChanged
+                            ? null
+                            : ref.watch(currentUserProvider).avatarUrl,
                         size: 156,
                       ),
                       Positioned(
@@ -176,16 +242,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 40),
-                Text(
-                  _phone.text,
-                  textAlign: TextAlign.center,
-                  style: HSText.title3,
-                ),
-                const SizedBox(height: 22),
                 SimpleProfileInput(
                   title: 'Имя',
                   child: TextField(
                     controller: _name,
+                    inputFormatters: [LengthLimitingTextInputFormatter(50)],
                     decoration: const InputDecoration.collapsed(
                       hintText: 'Введите имя',
                     ),
@@ -198,7 +259,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                   child: TextField(
                     controller: _phone,
                     keyboardType: TextInputType.phone,
-                    onChanged: (_) => setState(() {}),
                     decoration: const InputDecoration.collapsed(
                       hintText: 'Введите номер телефона',
                     ),
@@ -287,19 +347,24 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             ),
           ),
         ],
+        ),
       ),
       bottomNavigationBar: Container(
         color: hs.cardBackground,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Divider(height: 1, color: hs.stroke.withValues(alpha: 0.9)),
+            Divider(height: 1, color: hs.stroke),
             Padding(
+              // Lift the button above the keyboard (otherwise the phone-number
+              // keyboard hides it and the user can't save) — see QA #26.
               padding: EdgeInsets.fromLTRB(
                 20,
                 14,
                 20,
-                12 + MediaQuery.of(context).padding.bottom,
+                12 +
+                    MediaQuery.of(context).viewInsets.bottom +
+                    MediaQuery.of(context).padding.bottom,
               ),
               child: PrimaryFilledButton(
                 label: 'Сохранить',

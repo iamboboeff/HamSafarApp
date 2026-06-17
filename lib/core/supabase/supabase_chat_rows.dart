@@ -54,6 +54,9 @@ class ChatUserStateRow {
   String get userId => json['user_id'] as String;
   DateTime? get lastReadAt => _parseDate(json['last_read_at']);
   bool get isHidden => (json['is_hidden'] as bool?) ?? false;
+  // True once the user deletes the chat — distinct from archiving (is_hidden),
+  // so a deleted chat stays gone instead of reappearing in the archive (QA #68).
+  bool get isDeleted => (json['is_deleted'] as bool?) ?? false;
   DateTime? get updatedAt => _parseDate(json['updated_at']);
 }
 

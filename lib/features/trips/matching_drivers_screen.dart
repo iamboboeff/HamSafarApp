@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/trips_domain.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/ride_card.dart';
 import '../ride_detail/ride_detail_screen.dart';
@@ -45,7 +45,6 @@ class MatchingDriversScreen extends ConsumerWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
             child: Column(
@@ -74,7 +73,7 @@ class MatchingDriversScreen extends ConsumerWidget {
                     RideCard(
                       ride: ride,
                       onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
+                        HSRoute<void>(
                           builder: (_) => RideDetailScreen(ride: ride),
                         ),
                       ),

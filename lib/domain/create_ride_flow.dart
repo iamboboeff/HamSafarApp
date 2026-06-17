@@ -50,11 +50,12 @@ abstract final class CreateRideFlow {
     return step.previous;
   }
 
-  /// Ported from `sanitizedAmount` — digits only, clamped to 0...1000.
-  static int sanitizedAmount(String input) {
+  /// Digits only, clamped to 0...[max]. The cap depends on currency: 1000 for
+  /// TJS, 1_000_000 for UZS (QA currency follow-up).
+  static int sanitizedAmount(String input, {int max = 1000}) {
     final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
     final amount = int.tryParse(digits) ?? 0;
-    return amount.clamp(0, 1000);
+    return amount.clamp(0, max);
   }
 }
 
@@ -142,6 +143,8 @@ abstract final class CreateRidePublishing {
           pricePerSeat: context.priceValue,
           seatsLeft: context.availableSeatLabels.length,
           carModel: context.carProfile.model,
+          carColor: context.carProfile.color,
+          carPlate: context.carProfile.plateNumber,
           routeSummary:
               'Маршрут между ${context.departureLocation.city.name} и '
               '${context.destinationLocation.city.name}',

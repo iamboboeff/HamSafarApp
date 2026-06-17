@@ -38,6 +38,7 @@ class ChatThreadRow extends StatelessWidget {
                 child: ProfileAvatar(
                   initials: thread.initials,
                   avatarBytes: thread.avatarBytes,
+                  avatarUrl: thread.avatarUrl,
                   size: 46,
                 ),
               ),

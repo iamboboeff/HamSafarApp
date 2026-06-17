@@ -108,6 +108,7 @@ class RideCard extends StatelessWidget {
                   ProfileAvatar(
                     initials: ride.driver.initials,
                     avatarBytes: ride.driver.avatarBytes,
+                    avatarUrl: ride.driver.avatarUrl,
                     size: 42,
                   ),
                   const SizedBox(width: 10),

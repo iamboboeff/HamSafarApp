@@ -34,6 +34,24 @@ class ReviewPromptDismissalStore {
   }
 }
 
+/// Tracks whether the one-time "allow access to your photos" pre-prompt has
+/// been shown before the chat photo picker opens for the first time (QA #100).
+class ChatAttachmentPromptStore {
+  ChatAttachmentPromptStore._();
+
+  static const _key = 'hamsafar.chat.attachmentPrompt.shown';
+
+  static Future<bool> hasShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_key) ?? false;
+  }
+
+  static Future<void> markShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, true);
+  }
+}
+
 /// Ported from `AppPreferencesStore` in `AppPreferencesDomain.swift`. Persists
 /// the user-facing preference bundle (notifications, appearance, privacy) to
 /// `SharedPreferences`, keyed by the signed-in user's backend id.

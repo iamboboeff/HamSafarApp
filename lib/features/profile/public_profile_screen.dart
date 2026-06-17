@@ -8,15 +8,16 @@ import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/common.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/hs_route.dart';
+import '../ride_detail/ride_detail_screen.dart';
 import 'report_user_screen.dart';
 import 'widgets/profile_widgets.dart';
 
 /// Ported from `UserPublicProfileView` in `ProfileViews.swift` — shown when
 /// tapping a driver/passenger avatar or name on a ride or request card.
-/// Loads the profile, public stats and review history in parallel.
+/// Loads the profile, public stats, active rides and review history in parallel.
 class UserPublicProfileScreen extends ConsumerStatefulWidget {
   const UserPublicProfileScreen({
     super.key,
@@ -67,55 +68,180 @@ class _UserPublicProfileScreenState
     });
   }
 
+  /// Mirrors `UserPublicProfileView.activeRides` — driver-side future rides
+  /// in the live marketplace, sorted by departure.
+  List<Ride> _activeRidesFor(String backendId, List<Ride> rides) {
+    final now = DateTime.now();
+    final filtered = rides
+        .where(
+          (ride) =>
+              ride.driver.backendId == backendId &&
+              ride.departureDate.isAfter(now),
+        )
+        .toList();
+    filtered.sort((a, b) => a.departureDate.compareTo(b.departureDate));
+    return filtered;
+  }
+
+  /// Blocks or unblocks this user (App Store Guideline 1.2). Blocking hides
+  /// their content both ways and pops back; unblocking restores it.
+  Future<void> _toggleBlock(bool isBlocked) async {
+    final id = _profile.backendId;
+    if (id == null) return;
+    final notifier = ref.read(blockedUserIdsProvider.notifier);
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (isBlocked) {
+      try {
+        await notifier.unblock(id);
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Пользователь разблокирован.')),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось разблокировать. Попробуйте ещё раз.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Заблокировать пользователя?'),
+        content: Text(
+          'Вы больше не увидите поездки, запросы и сообщения от '
+          '${_profile.name}, а этот пользователь — ваши. Разблокировать можно '
+          'в настройках приватности.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Заблокировать'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await notifier.block(id);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Пользователь заблокирован.')),
+      );
+      Navigator.of(context).pop();
+    } catch (_) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Не удалось заблокировать. Попробуйте ещё раз.'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
+    final rides = ref.watch(marketplaceProvider).rides;
+    final activeRides = _profile.backendId == null
+        ? const <Ride>[]
+        : _activeRidesFor(_profile.backendId!, rides);
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Профиль пользователя'),
         actions: [
-          IconButton(
-            tooltip: 'Пожаловаться',
-            icon: const Icon(Icons.flag_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => ReportUserScreen(reportedUser: _profile),
-              ),
-            ),
+          Builder(
+            builder: (context) {
+              final id = _profile.backendId;
+              final isBlocked =
+                  id != null && ref.watch(blockedUserIdsProvider).contains(id);
+              return PopupMenuButton<String>(
+                tooltip: 'Ещё',
+                icon: const Icon(Icons.more_horiz),
+                onSelected: (value) {
+                  if (value == 'report') {
+                    Navigator.of(context).push(
+                      HSRoute<void>(
+                        builder: (_) =>
+                            ReportUserScreen(reportedUser: _profile),
+                      ),
+                    );
+                  } else if (value == 'block') {
+                    _toggleBlock(isBlocked);
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'report',
+                    child: Text('Пожаловаться'),
+                  ),
+                  PopupMenuItem(
+                    value: 'block',
+                    child: Text(
+                      isBlocked ? 'Разблокировать' : 'Заблокировать',
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          const AppBackdrop(),
-          RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              children: [
-                _HeaderCard(profile: _profile),
-                const SizedBox(height: HSSpacing.item),
-                _StatsCard(stats: _stats, isLoading: _isLoading),
-                const SizedBox(height: HSSpacing.item),
-                _ReviewsSection(
-                  reviews: _reviews,
-                  isLoading: _isLoading,
-                  hs: hs,
-                ),
-              ],
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await Future.wait([
+            _load(),
+            ref.read(marketplaceProvider.notifier).refresh(),
+          ]);
+        },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          children: [
+            _HeaderCard(
+              profile: _profile,
+              stats: _stats,
+              isLoading: _isLoading,
             ),
-          ),
-        ],
+            const SizedBox(height: HSSpacing.item),
+            _StatsCard(stats: _stats, isLoading: _isLoading),
+            const SizedBox(height: HSSpacing.item),
+            _ActiveRidesSection(
+              rides: activeRides,
+              hs: hs,
+            ),
+            const SizedBox(height: HSSpacing.item),
+            _ReviewsSection(
+              reviews: _reviews,
+              isLoading: _isLoading,
+              hs: hs,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _HeaderCard extends StatelessWidget {
-  const _HeaderCard({required this.profile});
+  const _HeaderCard({
+    required this.profile,
+    required this.stats,
+    required this.isLoading,
+  });
   final UserProfile profile;
+  final PublicProfileStats stats;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -128,34 +254,75 @@ class _HeaderCard extends StatelessWidget {
             child: ProfileAvatarView(
               initials: profile.initials,
               avatarBytes: profile.avatarBytes,
+              avatarUrl: profile.avatarUrl,
               size: 88,
             ),
           ),
           const SizedBox(height: 12),
-          Text(profile.name,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Text(
+            profile.name,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 6,
+            runSpacing: 6,
             children: [
-              Icon(Icons.star, color: hs.warm, size: 14),
-              const SizedBox(width: 6),
-              Text(profile.ratingText,
-                  style: HSText.subheadlineSemibold),
-              const SizedBox(width: 8),
-              Text('•',
-                  style:
-                      HSText.subheadline.copyWith(color: context.secondaryText)),
-              const SizedBox(width: 8),
-              Text('${profile.completedTrips} поездок',
-                  style: HSText.subheadline
-                      .copyWith(color: context.secondaryText)),
+              _HeaderPill(
+                icon: Icons.star_rounded,
+                iconColor: hs.warm,
+                label: profile.ratingText,
+              ),
+              _HeaderPill(
+                icon: Icons.route_rounded,
+                iconColor: hs.primary,
+                // Use the same authoritative counter as the stats card so the
+                // header doesn't disagree with the breakdown below (QA #21).
+                label:
+                    '${isLoading ? profile.completedTrips : stats.totalTrips} поездок',
+              ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(profile.identityLine,
-              style:
-                  HSText.caption.copyWith(color: context.secondaryText)),
+          const SizedBox(height: 8),
+          Text(
+            profile.identityLine,
+            textAlign: TextAlign.center,
+            style: HSText.caption.copyWith(color: context.secondaryText),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderPill extends StatelessWidget {
+  const _HeaderPill({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: hs.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: hs.stroke),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: iconColor),
+          const SizedBox(width: 6),
+          Text(label, style: HSText.captionSemibold),
         ],
       ),
     );
@@ -203,10 +370,198 @@ class _Stat extends StatelessWidget {
       children: [
         Text(value, style: HSText.title3),
         const SizedBox(height: 4),
-        Text(label,
-            textAlign: TextAlign.center,
-            style:
-                HSText.caption.copyWith(color: context.secondaryText)),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: HSText.caption.copyWith(color: context.secondaryText),
+        ),
+      ],
+    );
+  }
+}
+
+/// Ported from the `"Активные поездки"` section in `UserPublicProfileView`.
+class _ActiveRidesSection extends StatelessWidget {
+  const _ActiveRidesSection({required this.rides, required this.hs});
+
+  final List<Ride> rides;
+  final AppColors hs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Row(
+            children: [
+              Text('Активные поездки', style: HSText.headline),
+              if (rides.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: hs.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${rides.length}',
+                    style: HSText.captionSemibold.copyWith(color: hs.primary),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (rides.isEmpty)
+          GlassCard(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text(
+                  'Сейчас активных поездок нет.',
+                  style:
+                      HSText.subheadline.copyWith(color: context.secondaryText),
+                ),
+              ),
+            ),
+          )
+        else
+          GlassCard(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 14),
+            child: Column(
+              children: [
+                for (var i = 0; i < rides.length; i++) ...[
+                  _ActiveRideRow(ride: rides[i], hs: hs),
+                  if (i != rides.length - 1)
+                    Divider(height: 1, color: hs.stroke),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ActiveRideRow extends StatelessWidget {
+  const _ActiveRideRow({required this.ride, required this.hs});
+  final Ride ride;
+  final AppColors hs;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.of(context).push(
+        HSRoute<void>(builder: (_) => RideDetailScreen(ride: ride)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _RouteTimelineGlyph(hs: hs),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${ride.fromCity} → ${ride.toCity}',
+                    style: HSText.subheadlineSemibold,
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 2,
+                    children: [
+                      _MetaItem(
+                        icon: Icons.calendar_today_rounded,
+                        label: DateTextFormatter.dayMonthYear(
+                          ride.departureDate,
+                        ),
+                      ),
+                      _MetaItem(
+                        icon: Icons.access_time_rounded,
+                        label: DateTextFormatter.time(ride.departureDate),
+                      ),
+                      _MetaItem(
+                        icon: Icons.payments_outlined,
+                        label: ride.formattedPrice(),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                color: context.secondaryText,
+                size: 22,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteTimelineGlyph extends StatelessWidget {
+  const _RouteTimelineGlyph({required this.hs});
+  final AppColors hs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: hs.primary,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Container(width: 2, height: 22, color: hs.stroke),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: hs.passenger,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaItem extends StatelessWidget {
+  const _MetaItem({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: context.secondaryText),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: HSText.caption.copyWith(color: context.secondaryText),
+        ),
       ],
     );
   }
@@ -280,8 +635,10 @@ class _ReviewRow extends StatelessWidget {
               const SizedBox(width: 8),
               Icon(Icons.star, size: 14, color: hs.warm),
               const SizedBox(width: 4),
-              Text(review.rating.toStringAsFixed(1),
-                  style: HSText.subheadlineSemibold),
+              Text(
+                review.rating.toStringAsFixed(1),
+                style: HSText.subheadlineSemibold,
+              ),
               if (review.createdAt != null) ...[
                 const SizedBox(width: 8),
                 Text(

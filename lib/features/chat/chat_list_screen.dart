@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/chat_domain.dart';
@@ -32,7 +33,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
   void _openThread(ChatThread thread) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      HSRoute<void>(
         builder: (_) => ChatDetailScreen(threadId: thread.id),
       ),
     );
@@ -63,7 +64,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                     subtitle: 'Чаты и важные события по поездкам',
                     trailingIcon: Icons.archive_outlined,
                     onTrailingTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
+                      HSRoute<void>(
                         builder: (_) => const ArchiveChatsScreen(),
                       ),
                     ),
@@ -80,25 +81,36 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             Expanded(
               child: chatState.isListLoading && chatState.threads.isEmpty
                   ? const Center(child: CircularProgressIndicator())
-                  : filtered.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: EmptyChatStateContent(
-                        icon: Icons.forum_outlined,
-                        title: 'Активных чатов пока нет',
-                        subtitle:
-                            'Новые диалоги с водителями и пассажирами появятся здесь.',
-                      ),
-                    )
-                  : ChatThreadListView(
-                      threads: filtered,
-                      isArchiveList: false,
-                      onSelect: _openThread,
-                      onDelete: (t) =>
-                          ref.read(chatProvider.notifier).deleteThread(t.id),
-                      onArchiveToggle: (t) => ref
-                          .read(chatProvider.notifier)
-                          .setArchived(t.id, true),
+                  : RefreshIndicator(
+                      onRefresh: () =>
+                          ref.read(chatProvider.notifier).loadChats(),
+                      child: filtered.isEmpty
+                          ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: const [
+                                SizedBox(height: 120),
+                                Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 20),
+                                  child: EmptyChatStateContent(
+                                    icon: Icons.forum_outlined,
+                                    title: 'Активных чатов пока нет',
+                                    subtitle:
+                                        'Новые диалоги с водителями и пассажирами появятся здесь.',
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ChatThreadListView(
+                              threads: filtered,
+                              isArchiveList: false,
+                              onSelect: _openThread,
+                              onDelete: (t) => ref
+                                  .read(chatProvider.notifier)
+                                  .deleteThread(t.id),
+                              onArchiveToggle: (t) => ref
+                                  .read(chatProvider.notifier)
+                                  .setArchived(t.id, true),
+                            ),
                     ),
             ),
           ],

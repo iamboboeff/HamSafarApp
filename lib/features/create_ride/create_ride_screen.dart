@@ -36,9 +36,13 @@ class CreateRideScreen extends ConsumerStatefulWidget {
 
 class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   CreateFlowState _flow = const CreateFlowState.roleSelection();
-  final CreateRideDraft _draft = CreateRideDraft();
+  CreateRideDraft _draft = CreateRideDraft();
   bool _isPublishing = false;
   bool _didApplyDefaults = false;
+
+  /// Currency the driver is pricing this ride in. Defaults to their residence
+  /// country's currency but can be switched (TJS/UZS) in the price step (QA #99).
+  ResidenceCountry? _pricingCurrencyOverride;
 
   final _priceController = TextEditingController();
   final _notesController = TextEditingController();
@@ -46,7 +50,30 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   final _customArrivalController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Let the shell route Android system-back into the wizard (QA #69).
+    // Registered post-frame so we don't mutate a provider during build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(inTabBackHandlerProvider.notifier).set(_handleSystemBack);
+      }
+    });
+  }
+
+  /// Steps back through the wizard when it's open; returns false on the role
+  /// selection screen so the shell can fall back to Home / app exit.
+  bool _handleSystemBack() {
+    if (_flow.phase != CreateFlowPhase.roleSelection) {
+      _back();
+      return true;
+    }
+    return false;
+  }
+
+  @override
   void dispose() {
+    ref.read(inTabBackHandlerProvider.notifier).set(null);
     _priceController.dispose();
     _notesController.dispose();
     _customDepartureController.dispose();
@@ -54,9 +81,25 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     super.dispose();
   }
 
-  ResidenceCountry get _currency => ref.read(residenceCountryProvider);
+  /// TJS is the default pricing currency (and the first option) regardless of
+  /// the driver's residence country.
+  ResidenceCountry get _currency =>
+      _pricingCurrencyOverride ?? ResidenceCountry.tajikistan;
 
-  int get _priceValue => CreateRideFlow.sanitizedAmount(_priceController.text);
+  /// Currencies in display order: TJS first, UZS second.
+  static const _currencyOptions = [
+    ResidenceCountry.tajikistan,
+    ResidenceCountry.uzbekistan,
+  ];
+
+  /// Max price per currency: 1000 for TJS, 1_000_000 for UZS.
+  int _maxPriceFor(ResidenceCountry currency) =>
+      currency == ResidenceCountry.uzbekistan ? 1000000 : 1000;
+
+  int get _priceMax => _maxPriceFor(_currency);
+
+  int get _priceValue =>
+      CreateRideFlow.sanitizedAmount(_priceController.text, max: _priceMax);
 
   int get _driverSeatLimit => CreateRidePresentation.driverSeatLimit(
     ref.read(carProfileProvider),
@@ -105,15 +148,18 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   void _selectRole(TravelMode mode) {
     setState(() {
       if (mode == TravelMode.driver) {
-        _draft.seats = _driverSeatLimit;
-        _syncDriverSeats();
-        _draft.hasSelectedDriverFrom = false;
-        _draft.hasSelectedDriverTo = false;
+        // Apply the role's seat default only on a fresh start. When resuming a
+        // half-filled draft (e.g. coming back to the start via "+") keep the
+        // user's entries instead of wiping them.
+        if (!_draft.hasSelectedDriverFrom && !_draft.hasSelectedDriverTo) {
+          _draft.seats = _driverSeatLimit;
+          _syncDriverSeats();
+        }
         _flow = const CreateFlowState(CreateFlowPhase.driver);
       } else {
-        _draft.seats = 1;
-        _draft.hasSelectedPassengerFrom = false;
-        _draft.hasSelectedPassengerTo = false;
+        if (!_draft.hasSelectedPassengerFrom && !_draft.hasSelectedPassengerTo) {
+          _draft.seats = 1;
+        }
         _flow = const CreateFlowState(CreateFlowPhase.passenger);
       }
     });
@@ -175,17 +221,59 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     final mode = _flow.mode!;
 
     // Client-side guards (the server also validates cooldown/duplicates/limits).
+    // First pass: against the local clock so we can fail fast without a roundtrip.
     if (_mergedDepartureDate.isBefore(DateTime.now())) {
       _showError('Нельзя создать поездку на прошедшие дату или время.');
       return;
     }
-    if (mode == TravelMode.driver && _priceValue < 1) {
-      _showError('Сумма должна быть от 1 до 1000.');
+    // Origin and destination must differ (QA #76).
+    if (_draft.departureLocation.city.name.trim().toLowerCase() ==
+        _draft.destinationLocation.city.name.trim().toLowerCase()) {
+      _showError('Пункты отправления и назначения должны отличаться.');
       return;
+    }
+    if (mode == TravelMode.driver && _priceValue < 1) {
+      _showError(
+        'Сумма должна быть от 1 до ${_currency.formatAmount(_priceMax)}.',
+      );
+      return;
+    }
+    // A driver can't publish a ride until their vehicle is set up — otherwise
+    // passengers see a ride with no car details.
+    if (mode == TravelMode.driver &&
+        !ref.read(carProfileProvider).isComplete) {
+      _showError(
+        'Заполните данные автомобиля в профиле, чтобы опубликовать поездку.',
+      );
+      return;
+    }
+    // Only adults may drive — block publishing for underage drivers (#79).
+    if (mode == TravelMode.driver) {
+      final age = ref.read(currentUserProvider).age;
+      if (age != null && age < 18) {
+        _showError('Создавать поездки могут только пользователи старше 18 лет.');
+        return;
+      }
     }
 
     setState(() => _isPublishing = true);
     final service = ref.read(supabaseServiceProvider);
+
+    // Second pass: re-validate against server time so a skewed device clock
+    // can't sneak through a "future" departure that is actually in the past
+    // server-side. Mirrors `CreateRideViews.swift:1079`. We fall back to the
+    // local check if the server is unreachable so transient network blips
+    // don't block a legitimate publish.
+    try {
+      final serverNow = await service.fetchCurrentServerDate();
+      if (_mergedDepartureDate.toUtc().isBefore(serverNow)) {
+        setState(() => _isPublishing = false);
+        _showError('Нельзя создать поездку на прошедшие дату или время.');
+        return;
+      }
+    } catch (_) {
+      // Ignore — local-clock guard above already ran.
+    }
     final from = _draft.departureLocation;
     final to = _draft.destinationLocation;
     try {
@@ -209,6 +297,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             ),
             routeSummary:
                 'Маршрут между ${from.city.name} и ${to.city.name}',
+            currency: _currency.currencyCode,
           ),
           driver: ref.read(currentUserProvider),
           carProfile: ref.read(carProfileProvider),
@@ -252,6 +341,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     if (!mounted) return;
     setState(() => _isPublishing = false);
 
+    // First contextually-relevant moment for push: the publisher will want to
+    // hear when someone books / a driver responds. Prompts once; later no-op.
+    ref.read(sessionProvider.notifier).ensurePushPermission();
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -277,9 +370,21 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         .select(mode == TravelMode.driver ? AppTab.trips : AppTab.home);
   }
 
+  /// Returns to the role-selection start WITHOUT clearing anything, so tapping
+  /// "+" on a half-filled form keeps every entry (cities, date, price, notes).
+  void _goToStart() {
+    if (_flow.phase == CreateFlowPhase.roleSelection) return;
+    setState(() => _flow = const CreateFlowState.roleSelection());
+  }
+
+  /// Full reset to a blank draft — used after a successful publish so the next
+  /// ride/request starts clean.
   void _resetFlow() {
     setState(() {
       _flow = const CreateFlowState.roleSelection();
+      _draft = CreateRideDraft();
+      _didApplyDefaults = false;
+      _pricingCurrencyOverride = null;
       _priceController.clear();
       _notesController.clear();
       _customDepartureController.clear();
@@ -303,9 +408,24 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     );
   }
 
+  /// A gentle inline prompt (not a publish-error dialog) for missing-field
+  /// nudges like "выберите город" — keeps required-step guidance friendly.
+  void _showHint(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     _ensureDefaults();
+    // Tapping the "+" tab jumps back to the role-selection start but keeps the
+    // half-filled draft intact (the user can resume where they left off).
+    ref.listen(createTabResetProvider, (_, _) {
+      if (mounted) _goToStart();
+    });
     return BackdropScaffoldBody(
       child: SafeArea(
         bottom: false,
@@ -393,7 +513,18 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               _draft.customDepartureMeetingText = value,
         ),
         const SizedBox(height: 16),
-        PrimaryFilledButton(label: 'Продолжить', onPressed: _advance),
+        // "Откуда" is required — block advancing and tell the user why instead
+        // of a silently-disabled button (QA #13).
+        PrimaryFilledButton(
+          label: 'Продолжить',
+          onPressed: () {
+            if (!_draft.hasSelectedDriverFrom) {
+              _showHint('Сначала выберите город отправления.');
+              return;
+            }
+            _advance();
+          },
+        ),
       ],
     );
   }
@@ -436,7 +567,17 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               _draft.customArrivalMeetingText = value,
         ),
         const SizedBox(height: 16),
-        PrimaryFilledButton(label: 'Продолжить', onPressed: _advance),
+        // "Куда" is required — block advancing and tell the user why (QA #13).
+        PrimaryFilledButton(
+          label: 'Продолжить',
+          onPressed: () {
+            if (!_draft.hasSelectedDriverTo) {
+              _showHint('Сначала выберите город назначения.');
+              return;
+            }
+            _advance();
+          },
+        ),
       ],
     );
   }
@@ -558,6 +699,32 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           'Пассажиры увидят стоимость за одного человека.',
           style: HSText.subheadline.copyWith(color: context.secondaryText),
         ),
+        const SizedBox(height: 16),
+        Text(
+          'Валюта',
+          style: HSText.captionSemibold.copyWith(color: context.secondaryText),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final currency in _currencyOptions) ...[
+              _CurrencyChip(
+                label: currency.currencyCode,
+                isSelected: _currency == currency,
+                onTap: () => setState(() {
+                  _pricingCurrencyOverride = currency;
+                  // Re-clamp any already-typed price to the new currency's max.
+                  final v = CreateRideFlow.sanitizedAmount(
+                    _priceController.text,
+                    max: _maxPriceFor(currency),
+                  );
+                  _priceController.text = v == 0 ? '' : '$v';
+                }),
+              ),
+              const SizedBox(width: 10),
+            ],
+          ],
+        ),
         const SizedBox(height: 18),
         AmountEntryCard(
           title: 'Цена за 1 пассажира',
@@ -567,7 +734,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           currencyCode: _currency.currencyCode,
           controller: _priceController,
           onChanged: (value) {
-            final amount = CreateRideFlow.sanitizedAmount(value);
+            final amount =
+                CreateRideFlow.sanitizedAmount(value, max: _priceMax);
             final text = amount == 0 && value.trim().isEmpty ? '' : '$amount';
             if (text != value) {
               _priceController.value = TextEditingValue(
@@ -707,40 +875,61 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           toCountry: _draft.destinationLocation.country.name,
         ),
         const SizedBox(height: 18),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.35,
+        Column(
           children: [
-            CreateSummaryMetricCard(
-              title: 'Дата',
-              value: DateTextFormatter.dayMonthYear(_draft.departureDate),
-              icon: Icons.calendar_today,
-              accent: accent,
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: CreateSummaryMetricCard(
+                      title: 'Дата',
+                      value: DateTextFormatter.dayMonthYear(_draft.departureDate),
+                      icon: Icons.calendar_today,
+                      accent: accent,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: CreateSummaryMetricCard(
+                      title: 'Время',
+                      value: DateTextFormatter.time(_draft.departureTime),
+                      icon: Icons.schedule,
+                      accent: accent,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            CreateSummaryMetricCard(
-              title: 'Время',
-              value: DateTextFormatter.time(_draft.departureTime),
-              icon: Icons.schedule,
-              accent: accent,
-            ),
-            CreateSummaryMetricCard(
-              title: isDriver ? 'Цена за место' : 'Формат',
-              value: isDriver
-                  ? _currency.formatAmount(_priceValue)
-                  : 'Без бюджета',
-              icon: isDriver ? Icons.payments_outlined : Icons.verified_user,
-              accent: accent,
-            ),
-            CreateSummaryMetricCard(
-              title: isDriver ? 'Свободные места' : 'Нужно мест',
-              value:
-                  '${isDriver ? _draft.availableSeatLabels.length : _draft.seats}',
-              icon: Icons.groups,
-              accent: accent,
+            const SizedBox(height: 12),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: CreateSummaryMetricCard(
+                      title: isDriver ? 'Цена за место' : 'Формат',
+                      value: isDriver
+                          ? _currency.formatAmount(_priceValue)
+                          : 'Без бюджета',
+                      icon: isDriver
+                          ? Icons.payments_outlined
+                          : Icons.verified_user,
+                      accent: accent,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: CreateSummaryMetricCard(
+                      title: isDriver ? 'Свободные места' : 'Нужно мест',
+                      value:
+                          '${isDriver ? _draft.availableSeatLabels.length : _draft.seats}',
+                      icon: Icons.groups,
+                      accent: accent,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -959,7 +1148,12 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             label: 'Создать заявку',
             accent: hs.passenger,
             isLoading: _isPublishing,
-            onPressed: _isPublishing ? null : _publish,
+            // "Откуда" and "Куда" are required before a request can be created.
+            onPressed: (_isPublishing ||
+                    !_draft.hasSelectedPassengerFrom ||
+                    !_draft.hasSelectedPassengerTo)
+                ? null
+                : _publish,
           ),
           const SizedBox(height: 20),
         ],
@@ -972,5 +1166,41 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     if (DateUtilsX.isToday(date)) return 'Сегодня';
     if (DateUtilsX.isTomorrow(date)) return 'Завтра';
     return DateTextFormatter.dayMonthYear(date);
+  }
+}
+
+/// Small pill used to pick the ride's pricing currency (QA #99).
+class _CurrencyChip extends StatelessWidget {
+  const _CurrencyChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? hs.primary : hs.secondarySurface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: isSelected ? hs.primary : hs.stroke),
+        ),
+        child: Text(
+          label,
+          style: HSText.subheadlineSemibold.copyWith(
+            color: isSelected ? Colors.white : context.primaryText,
+          ),
+        ),
+      ),
+    );
   }
 }

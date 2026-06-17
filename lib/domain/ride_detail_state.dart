@@ -71,6 +71,23 @@ class RideDetailDerivedState {
     return trimmed.isEmpty ? 'Автомобиль не указан' : trimmed;
   }
 
+  /// Colour + plate of the car for the detail block, e.g.
+  /// "Белый • номер 01A123AA". Falls back to a route line for legacy rides
+  /// that were published before vehicle colour/plate were carried through.
+  String get rideCarDetailText {
+    final color = currentRide.carColor.trim();
+    final plate = currentRide.carPlate.trim();
+    final parts = <String>[
+      if (color.isNotEmpty) color,
+      if (plate.isNotEmpty) 'номер $plate',
+    ];
+    if (parts.isEmpty) {
+      return 'Комфортная поездка по маршруту '
+          '${currentRide.fromCity} — ${currentRide.toCity}';
+    }
+    return parts.join(' • ');
+  }
+
   String get passengerDetailDateTitle =>
       DateTextFormatter.weekdayDayMonth(currentRide.departureDate);
 

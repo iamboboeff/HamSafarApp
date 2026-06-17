@@ -65,7 +65,10 @@ class MonthCalendar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        if (scrollHeight == null)
+        // A non-finite height (e.g. double.infinity) would give the inner
+        // ListView an unbounded viewport and render nothing, so treat it the
+        // same as null and fill the available space instead.
+        if (scrollHeight == null || !scrollHeight!.isFinite)
           Expanded(child: list)
         else
           SizedBox(height: scrollHeight, child: list),

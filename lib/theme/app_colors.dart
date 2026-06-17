@@ -20,6 +20,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.passenger,
     required this.orange,
     required this.star,
+    required this.danger,
   });
 
   /// Brand colors — identical in both modes.
@@ -30,6 +31,10 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color passenger;
   final Color orange;
   final Color star;
+
+  /// Cancelled / destructive state — brightness-tuned so it stays readable and
+  /// doesn't clash with the coral passenger colour.
+  final Color danger;
 
   /// Surface colors — brightness dependent.
   final Color background;
@@ -54,6 +59,7 @@ class AppColors extends ThemeExtension<AppColors> {
     passenger: _passenger,
     orange: _orange,
     star: _star,
+    danger: Color(0xFFE5484D),
     background: Color(0xFFFCF5EB),
     tint: Color(0xFFE6F5F7),
     cardBackground: Color(0xFFFFFCF7),
@@ -69,6 +75,7 @@ class AppColors extends ThemeExtension<AppColors> {
     passenger: _passenger,
     orange: _orange,
     star: _star,
+    danger: Color(0xFFFF6166),
     background: Color(0xFF0D1421),
     tint: Color(0xFF141F33),
     cardBackground: Color(0xFF141C2E),
@@ -90,6 +97,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? passenger,
     Color? orange,
     Color? star,
+    Color? danger,
   }) {
     return AppColors(
       primary: primary ?? this.primary,
@@ -104,6 +112,7 @@ class AppColors extends ThemeExtension<AppColors> {
       passenger: passenger ?? this.passenger,
       orange: orange ?? this.orange,
       star: star ?? this.star,
+      danger: danger ?? this.danger,
     );
   }
 
@@ -127,6 +136,7 @@ class AppColors extends ThemeExtension<AppColors> {
       passenger: Color.lerp(passenger, other.passenger, t)!,
       orange: Color.lerp(orange, other.orange, t)!,
       star: Color.lerp(star, other.star, t)!,
+      danger: Color.lerp(danger, other.danger, t)!,
     );
   }
 }

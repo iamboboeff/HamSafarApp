@@ -148,6 +148,7 @@ class ChatThread {
     this.category = ChatCategory.active,
     this.relatedDate,
     this.avatarBytes,
+    this.avatarUrl,
     required this.messages,
   });
 
@@ -169,6 +170,7 @@ class ChatThread {
   ChatCategory category;
   final DateTime? relatedDate;
   final Uint8List? avatarBytes;
+  final String? avatarUrl;
   List<ChatMessage> messages;
 
   String get initials => name
@@ -223,6 +225,7 @@ class ChatThread {
       category: category ?? this.category,
       relatedDate: relatedDate,
       avatarBytes: avatarBytes,
+      avatarUrl: avatarUrl,
       messages: messages ?? this.messages,
     );
   }

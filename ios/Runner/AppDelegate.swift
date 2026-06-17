@@ -53,6 +53,21 @@ import UserNotifications
           result(granted)
         }
       }
+    case "registerIfAuthorized":
+      // Re-register with APNs without ever showing the permission prompt —
+      // used on app launch for users who already granted notifications, so
+      // the system prompt is reserved for the first contextually-relevant
+      // action (publishing a ride / sending a booking request).
+      UNUserNotificationCenter.current().getNotificationSettings { settings in
+        DispatchQueue.main.async {
+          let authorized = settings.authorizationStatus == .authorized
+            || settings.authorizationStatus == .provisional
+          if authorized {
+            UIApplication.shared.registerForRemoteNotifications()
+          }
+          result(authorized)
+        }
+      }
     case "getDeviceToken":
       result(pendingDeviceToken)
     default:
@@ -79,5 +94,43 @@ import UserNotifications
       "onRegistrationError",
       arguments: error.localizedDescription
     )
+  }
+
+  // MARK: - Foreground presentation
+  //
+  // Without this delegate method, iOS swallows incoming push notifications
+  // when the app is in foreground — APNs delivers the payload, but no banner,
+  // sound or badge is shown. Forwarding `.banner, .sound, .badge` makes the
+  // system render the notification UI even while the user is inside the app.
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    // Tell Dart a push arrived while in foreground so it can refresh the
+    // in-app notification feed / counter (QA #23).
+    pushChannel?.invokeMethod("onPushReceived", arguments: nil)
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .list, .sound, .badge])
+    } else {
+      completionHandler([.alert, .sound, .badge])
+    }
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    // The user tapped a notification — forward its payload to Dart so it can
+    // navigate to the relevant chat/notification screen (QA #25).
+    let userInfo = response.notification.request.content.userInfo
+    var payload = [String: Any]()
+    for (key, value) in userInfo {
+      if let key = key as? String { payload[key] = value }
+    }
+    pushChannel?.invokeMethod("onPushOpened", arguments: payload)
+    completionHandler()
   }
 }

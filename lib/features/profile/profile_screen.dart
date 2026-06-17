@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/app_state.dart';
@@ -10,6 +11,7 @@ import 'car_settings_screen.dart';
 import 'delete_account_screen.dart';
 import 'edit_profile_screen.dart';
 import 'info_screens.dart';
+import 'ride_alerts_screen.dart';
 import 'settings/appearance_settings_screen.dart';
 import 'settings/notification_settings_screen.dart';
 import 'settings/privacy_settings_screen.dart';
@@ -20,7 +22,7 @@ class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   void _push(BuildContext context, Widget screen) {
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+    Navigator.of(context).push(HSRoute<void>(builder: (_) => screen));
   }
 
   @override
@@ -54,6 +56,7 @@ class ProfileScreen extends ConsumerWidget {
                           ProfileAvatarView(
                             initials: profile.initials,
                             avatarBytes: profile.avatarBytes,
+                            avatarUrl: profile.avatarUrl,
                             size: 88,
                           ),
                           const SizedBox(height: 12),
@@ -85,12 +88,19 @@ class ProfileScreen extends ConsumerWidget {
                       accent: hs.warm,
                       onTap: () => _push(context, const CarSettingsScreen()),
                     ),
+                    const SettingsDivider(),
+                    SettingsRow(
+                      title: 'Оповещения о поездках',
+                      icon: Icons.notifications_active_outlined,
+                      accent: hs.passenger,
+                      onTap: () => _push(context, const RideAlertsScreen()),
+                    ),
                   ],
                 ),
               ] else
                 GuestProfileHeaderCard(
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
+                    HSRoute<void>(
                       builder: (_) => const AuthScreen(),
                       fullscreenDialog: true,
                     ),
@@ -114,13 +124,18 @@ class ProfileScreen extends ConsumerWidget {
                     onTap: () =>
                         _push(context, const AppearanceSettingsScreen()),
                   ),
-                  const SettingsDivider(),
-                  SettingsRow(
-                    title: 'Приватность и безопасность',
-                    icon: Icons.lock_outline,
-                    accent: hs.warm,
-                    onTap: () => _push(context, const PrivacySettingsScreen()),
-                  ),
+                  // Privacy & security manage the signed-in account (password,
+                  // visibility) — hide it from guests (QA #17).
+                  if (isAuthenticated) ...[
+                    const SettingsDivider(),
+                    SettingsRow(
+                      title: 'Приватность и безопасность',
+                      icon: Icons.lock_outline,
+                      accent: hs.warm,
+                      onTap: () =>
+                          _push(context, const PrivacySettingsScreen()),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 18),

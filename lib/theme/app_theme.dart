@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_colors.dart';
 
@@ -23,7 +24,9 @@ abstract final class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: hs.background,
+      // Transparent so every Scaffold (including the AppBar area) shows the
+      // global backdrop painted in HamSafarApp.builder.
+      scaffoldBackgroundColor: Colors.transparent,
       splashFactory: InkRipple.splashFactory,
       extensions: [hs],
       // Manrope mirrors SwiftUI's `Font.system(design: .rounded)` — soft
@@ -41,13 +44,28 @@ abstract final class AppTheme {
       ),
     );
 
+    // Status-bar icons must stay readable on screens that have an AppBar (the
+    // root AnnotatedRegion only covers AppBar-less screens) — dark icons on the
+    // light theme, light icons on the dark theme (QA #18).
+    final overlayStyle = (brightness == Brightness.light
+            ? SystemUiOverlayStyle.dark
+            : SystemUiOverlayStyle.light)
+        .copyWith(
+      statusBarColor: Colors.transparent,
+      statusBarBrightness:
+          brightness == Brightness.light ? Brightness.light : Brightness.dark,
+      statusBarIconBrightness:
+          brightness == Brightness.light ? Brightness.dark : Brightness.light,
+    );
+
     return base.copyWith(
       appBarTheme: AppBarTheme(
-        backgroundColor: hs.background,
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
+        systemOverlayStyle: overlayStyle,
         titleTextStyle: base.textTheme.titleMedium?.copyWith(
           fontWeight: FontWeight.w600,
         ),

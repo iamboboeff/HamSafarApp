@@ -45,6 +45,7 @@ class ProfileRow {
       phoneNumber: (json['phone'] as String?) ?? '',
       email: (json['email'] as String?) ?? '',
       avatarBytes: UserProfile.decodeAvatarUrl(json['avatar_url'] as String?),
+      avatarUrl: UserProfile.avatarUrlFromColumn(json['avatar_url'] as String?),
       gender: ProfileGender.values
           .where((g) => g.name == genderRaw)
           .cast<ProfileGender?>()
@@ -68,12 +69,14 @@ class VehicleRow {
   String? get id => json['id'] as String?;
   String? get ownerId => json['owner_id'] as String?;
   String get model => (json['model'] as String?) ?? 'Автомобиль';
+  String get color => (json['color'] as String?) ?? '';
+  String get plateNumber => (json['plate_number'] as String?) ?? '';
 
   CarProfile toModel() {
     return CarProfile(
       model: model,
-      color: (json['color'] as String?) ?? '',
-      plateNumber: (json['plate_number'] as String?) ?? '',
+      color: color,
+      plateNumber: plateNumber,
       seats: '${_parseInt(json['seats'], 4)}',
     );
   }
@@ -108,6 +111,9 @@ class RideRow {
   bool? get searchPassengersEnabled =>
       json['search_passengers_enabled'] as bool?;
   String get status => (json['status'] as String?) ?? 'active';
+  String? get currency => json['currency'] as String?;
+  int? get durationSeconds =>
+      json['duration_seconds'] == null ? null : _parseInt(json['duration_seconds']);
 
   /// Ported from `SupabaseService.mapRide`.
   Ride toModel({
@@ -123,8 +129,8 @@ class RideRow {
           rating: 5,
           completedTrips: 0,
         );
-    final carModel =
-        vehicleId == null ? 'Автомобиль' : (vehiclesById[vehicleId]?.model ?? 'Автомобиль');
+    final vehicle = vehicleId == null ? null : vehiclesById[vehicleId];
+    final carModel = vehicle?.model ?? 'Автомобиль';
     final labels = availableSeatLabels ?? SeatLayout.seatLabels(seatsTotal);
     return Ride(
       id: id ?? driverId,
@@ -145,14 +151,22 @@ class RideRow {
       pricePerSeat: pricePerSeat,
       seatsLeft: (seatsLeft ?? seatsTotal).clamp(0, 1 << 30),
       carModel: carModel,
+      carColor: vehicle?.color ?? '',
+      carPlate: vehicle?.plateNumber ?? '',
+      durationSeconds: durationSeconds,
       routeSummary:
           routeSummary ?? 'Маршрут между $fromCity и $toCity',
       notes: notes ?? '',
       driver: driver,
       reviews: reviewsByUserId[driverId] ?? const [],
       availableSeatLabels: labels,
-      pricingCountry:
-          driver.countryOfResidence ?? ResidenceCountry.tajikistan,
+      // The ride carries its own currency (TJS/UZS) chosen at publish; only
+      // fall back to the driver's residence for legacy rows without it.
+      pricingCountry: currency == 'UZS'
+          ? ResidenceCountry.uzbekistan
+          : currency == 'TJS'
+              ? ResidenceCountry.tajikistan
+              : (driver.countryOfResidence ?? ResidenceCountry.tajikistan),
     );
   }
 }
@@ -201,6 +215,7 @@ class BookingRow {
   String get passengerId => json['passenger_id'] as String;
   int get seatsCount => _parseInt(json['seats_count'], 1);
   String get status => (json['status'] as String?) ?? 'pending';
+  String? get cancelReason => json['cancel_reason'] as String?;
   DateTime? get createdAt => _parseDate(json['created_at']);
 }
 

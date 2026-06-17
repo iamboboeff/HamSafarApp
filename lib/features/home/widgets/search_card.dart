@@ -55,73 +55,81 @@ class SearchCard extends ConsumerWidget {
       if (result != null) notifier.setDate(result);
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(HSRadius.card),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              hs.cardBackground.withValues(alpha: 0.96),
-              hs.cardBackground.withValues(alpha: 0.90),
-              hs.primary.withValues(alpha: 0.08),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(HSRadius.card),
-          border: Border.all(
-            color: hs.primary.withValues(alpha: 0.9),
-            width: 1.5,
-          ),
+    // Flat card — single solid `hs.cardBackground` fill. Previously had a
+    // 3-stop diagonal gradient with a `hs.primary @ 0.08` tint in the
+    // bottom-right corner that read as a glare on dark theme; user asked to
+    // remove it. Keeps the saturated primary stroke (matches iOS), but
+    // softens it slightly so the rim doesn't compete with the contents.
+    final cardRadius = BorderRadius.circular(HSRadius.large);
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: hs.cardBackground,
+        borderRadius: cardRadius,
+        border: Border.all(
+          color: hs.primary.withValues(alpha: 0.55),
+          width: 1.2,
         ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                HSSpacing.cardPadding,
-                14,
-                HSSpacing.cardPadding,
-                12,
-              ),
-              child: Column(
-                children: [
-                  _FieldButton(
-                    icon: Icons.trip_origin,
-                    iconColor: hs.primary,
-                    title: 'Откуда',
-                    value: searchState.hasSelectedFrom
-                        ? search.fromLocation?.city.name
-                        : null,
-                    onTap: pickFrom,
-                  ),
-                  const _CardDivider(),
-                  _FieldButton(
-                    icon: Icons.location_on,
-                    iconColor: hs.orange,
-                    title: 'Куда',
-                    value: searchState.hasSelectedTo
-                        ? search.toLocation?.city.name
-                        : null,
-                    onTap: pickTo,
-                  ),
-                  const _CardDivider(),
-                  _FieldButton(
-                    icon: Icons.calendar_today,
-                    iconColor: hs.primary,
-                    title: 'Когда',
-                    value: _dateValue(search.date),
-                    onTap: pickDate,
-                  ),
-                ],
-              ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              HSSpacing.cardPadding,
+              14,
+              HSSpacing.cardPadding,
+              12,
             ),
-            _SubmitButton(
-              isLoading: isLoading,
-              isEnabled: canSearch,
-              onTap: onSearch,
+            child: Column(
+              children: [
+                // Icons mirror SF Symbols used by `HomeSearchRouteRow` in
+                // `HomeSearchComponents.swift`:
+                // `smallcircle.filled.circle.fill` → radio_button_checked,
+                // `location.fill` → navigation_rounded,
+                // `calendar` → calendar_today.
+                _FieldButton(
+                  icon: Icons.radio_button_checked,
+                  iconColor: hs.primary,
+                  title: 'Откуда',
+                  value: searchState.hasSelectedFrom
+                      ? search.fromLocation?.city.name
+                      : null,
+                  onTap: pickFrom,
+                ),
+                const _CardDivider(),
+                _FieldButton(
+                  icon: Icons.navigation_rounded,
+                  iconColor: hs.orange,
+                  title: 'Куда',
+                  value: searchState.hasSelectedTo
+                      ? search.toLocation?.city.name
+                      : null,
+                  onTap: pickTo,
+                ),
+                const _CardDivider(),
+                _FieldButton(
+                  icon: Icons.calendar_today,
+                  iconColor: hs.primary,
+                  title: 'Когда',
+                  value: _dateValue(search.date),
+                  onTap: pickDate,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          _SubmitButton(
+            isLoading: isLoading,
+            isEnabled: canSearch,
+            onTap: onSearch,
+          ),
+        ],
       ),
     );
   }

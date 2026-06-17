@@ -55,7 +55,9 @@ class BookedTripCard extends StatelessWidget {
   Color _tripTypeBadgeColor(BuildContext context) {
     final hs = context.hs;
     if (trip.role == TripRole.driver) return hs.primary;
-    return _isRealPassengerBooking ? hs.purple : hs.warm;
+    // Passenger role is consistently coral; booking vs request is told apart by
+    // the badge text + status, not a separate hue.
+    return _isRealPassengerBooking ? hs.purple : hs.passenger;
   }
 
   bool get _shouldShowBottomDivider {
@@ -157,7 +159,7 @@ class BookedTripCard extends StatelessWidget {
       } else {
         trailing = Text(
           'Нужно ${trip.seatsBooked} место',
-          style: HSText.captionSemibold.copyWith(color: hs.warm),
+          style: HSText.captionSemibold.copyWith(color: context.secondaryText),
         );
       }
     } else {
@@ -364,11 +366,12 @@ class BookedTripCard extends StatelessWidget {
   }
 
   Widget _cancelledBody(BuildContext context) {
+    final expired = trip.isExpired;
     return _historyBody(
       context,
-      icon: Icons.cancel,
-      label: 'Поездка отменена',
-      color: Colors.red.withValues(alpha: 0.85),
+      icon: expired ? Icons.timer_off_outlined : Icons.cancel,
+      label: expired ? 'Заявка истекла' : 'Поездка отменена',
+      color: expired ? context.secondaryText : context.hs.danger,
     );
   }
 

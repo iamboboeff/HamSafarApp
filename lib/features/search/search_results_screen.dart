@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/date_formatter.dart';
@@ -7,11 +8,14 @@ import '../../domain/trips_domain.dart';
 import '../../models/app_tab.dart';
 import '../../models/passenger_request.dart';
 import '../../models/ride.dart';
+import '../../models/ride_alert.dart';
 import '../../state/app_state.dart';
+import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
+import '../../widgets/buttons.dart';
 import '../../widgets/passenger_request_card.dart';
 import '../../widgets/ride_card.dart';
+import '../auth/auth_screen.dart';
 import '../ride_detail/passenger_request_detail_screen.dart';
 import '../ride_detail/ride_detail_screen.dart';
 import 'widgets/search_filter_bar.dart';
@@ -121,7 +125,6 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           Column(
             children: [
               Padding(
@@ -133,40 +136,58 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                       .select(value),
                 ),
               ),
+              // Route + date are a FIXED header — the pull-to-refresh spinner
+              // appears below this, with the results, not over the city/date
+              // block.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SearchRouteSummary(),
+                    const SizedBox(height: 12),
+                    SearchFilterBar(
+                      dateOptions: dateOptions,
+                      isAllDatesSelected: !_isDateFilterActive,
+                      selectedDate: search.date,
+                      showsFilterButton: false,
+                      onOpenCalendar: () =>
+                          setState(() => _showDatePicker = true),
+                      onSelectDateOption: (option) {
+                        setState(() {
+                          if (option.isAllDates) {
+                            _isDateFilterActive = false;
+                          } else {
+                            ref
+                                .read(homeSearchProvider.notifier)
+                                .setDate(option.date);
+                            _isDateFilterActive = true;
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SearchRouteSummary(),
-                      const SizedBox(height: 12),
-                      SearchFilterBar(
-                        dateOptions: dateOptions,
-                        isAllDatesSelected: !_isDateFilterActive,
-                        selectedDate: search.date,
-                        showsFilterButton: false,
-                        onOpenCalendar: () =>
-                            setState(() => _showDatePicker = true),
-                        onSelectDateOption: (option) {
-                          setState(() {
-                            if (option.isAllDates) {
-                              _isDateFilterActive = false;
-                            } else {
-                              ref
-                                  .read(homeSearchProvider.notifier)
-                                  .setDate(option.date);
-                              _isDateFilterActive = true;
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      if (section == HomeListingSection.rides)
-                        ..._buildRideResults(filteredRides)
-                      else
-                        ..._buildRequestResults(filteredRequests),
-                    ],
+                child: RefreshIndicator(
+                  onRefresh: () =>
+                      ref.read(marketplaceProvider.notifier).refresh(),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: ClampingScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (section == HomeListingSection.rides)
+                          ..._buildRideResults(filteredRides)
+                        else
+                          ..._buildRequestResults(filteredRequests),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -204,7 +225,16 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
   List<Widget> _buildRideResults(List<Ride> rides) {
     if (rides.isEmpty) {
-      return [_emptyText('По этому маршруту пока нет доступных поездок.')];
+      final search = ref.read(homeSearchProvider).search;
+      final from = search.fromLocation?.city.name;
+      final to = search.toLocation?.city.name;
+      return [
+        _emptyText('По этому маршруту пока нет доступных поездок.'),
+        if (from != null && to != null) ...[
+          const SizedBox(height: 16),
+          _RideAlertCard(fromCity: from, toCity: to),
+        ],
+      ];
     }
     final groups = _groupByDay(rides, (r) => r.departureDate);
     return [
@@ -217,7 +247,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
           RideCard(
             ride: ride,
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
+              HSRoute<void>(
                 builder: (_) => RideDetailScreen(ride: ride),
               ),
             ),
@@ -243,7 +273,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
           PassengerRequestCard(
             request: request,
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
+              HSRoute<void>(
                 builder: (_) => PassengerRequestDetailScreen(request: request),
               ),
             ),
@@ -296,5 +326,171 @@ class _DaySectionHeader extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// "Создать оповещение о поездке" card shown on an empty rides search — lets
+/// the user subscribe to be pushed when a ride appears on this route.
+class _RideAlertCard extends ConsumerWidget {
+  const _RideAlertCard({required this.fromCity, required this.toCity});
+
+  final String fromCity;
+  final String toCity;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hs = context.hs;
+    final isAuth = ref.watch(isAuthenticatedProvider);
+    final alerts = ref.watch(rideAlertsProvider);
+    RideAlert? existing;
+    for (final a in alerts) {
+      if (a.fromCity == fromCity && a.toCity == toCity) {
+        existing = a;
+        break;
+      }
+    }
+    final subscribed = existing != null;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: hs.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: hs.primary.withValues(alpha: 0.20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                subscribed
+                    ? Icons.notifications_active
+                    : Icons.notifications_none,
+                color: hs.primary,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  subscribed
+                      ? 'Оповещение включено'
+                      : 'Сообщить, когда появится поездка',
+                  style: HSText.subheadlineSemibold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subscribed
+                ? 'Пришлём пуш, как только кто-то опубликует поездку '
+                    '$fromCity → $toCity.'
+                : 'Подпишитесь на маршрут $fromCity → $toCity — пришлём '
+                    'уведомление, как только появится поездка.',
+            style: HSText.subheadline.copyWith(color: context.secondaryText),
+          ),
+          const SizedBox(height: 14),
+          if (!isAuth) ...[
+            PrimaryFilledButton(
+              label: 'Создать оповещение',
+              onPressed: () => _promptLogin(context),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: context.secondaryText,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Войдите в аккаунт, чтобы подписаться на оповещения.',
+                    style: HSText.caption.copyWith(
+                      color: context.secondaryText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else if (subscribed)
+            DestructiveOutlineButton(
+              label: 'Отключить оповещение',
+              onPressed: () => _remove(context, ref, existing!.id),
+            )
+          else
+            PrimaryFilledButton(
+              label: 'Создать оповещение',
+              onPressed: () => _create(context, ref),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Guests can see the alert card but must sign in to subscribe — prompt them
+  /// and open the auth screen if they accept.
+  Future<void> _promptLogin(BuildContext context) async {
+    final goToLogin = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Нужен вход'),
+        content: const Text(
+          'Чтобы подписаться на оповещения о поездках по этому маршруту, '
+          'сначала войдите в аккаунт.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Войти'),
+          ),
+        ],
+      ),
+    );
+    if (goToLogin == true && context.mounted) {
+      Navigator.of(context).push(
+        HSRoute<void>(
+          builder: (_) => const AuthScreen(),
+          fullscreenDialog: true,
+        ),
+      );
+    }
+  }
+
+  Future<void> _create(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(rideAlertsProvider.notifier).create(fromCity, toCity);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Оповещение создано — пришлём пуш по этому маршруту.'),
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Не удалось создать оповещение.')),
+      );
+    }
+  }
+
+  Future<void> _remove(BuildContext context, WidgetRef ref, String id) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(rideAlertsProvider.notifier).remove(id);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Оповещение отключено.')),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Не удалось отключить оповещение.')),
+      );
+    }
   }
 }

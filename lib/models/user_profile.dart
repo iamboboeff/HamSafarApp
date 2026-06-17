@@ -23,9 +23,11 @@ class UserProfile {
     required this.name,
     required this.rating,
     required this.completedTrips,
+    this.ratingCount = 0,
     this.phoneNumber = '',
     this.email = '',
     this.avatarBytes,
+    this.avatarUrl,
     this.gender,
     this.birthDate,
     this.registeredAt,
@@ -38,13 +40,21 @@ class UserProfile {
   final String name;
   final double rating;
   final int completedTrips;
+
+  /// Number of reviews behind [rating]. Zero means the user has no ratings
+  /// yet, so [ratingText] shows a placeholder instead of the default 5.0.
+  final int ratingCount;
   final String phoneNumber;
   final String email;
 
-  /// Raw avatar bytes, mirroring `UserProfile.avatarData` in Swift. Decoded
-  /// from `profiles.avatar_url` when it's stored as a `data:image/...;base64,`
-  /// URL and re-encoded back on save.
+  /// Locally-picked avatar bytes, used only as an immediate preview before the
+  /// image is uploaded to Storage. Persisted avatars come back via [avatarUrl].
   final Uint8List? avatarBytes;
+
+  /// Public Supabase Storage URL of the avatar (small, CDN-served, cached
+  /// between launches). This replaced the old base64 `data:` URLs that were
+  /// stored inline in `profiles.avatar_url`.
+  final String? avatarUrl;
   final ProfileGender? gender;
   final DateTime? birthDate;
   final DateTime? registeredAt;
@@ -56,6 +66,7 @@ class UserProfile {
     String? phoneNumber,
     String? email,
     Object? avatarBytes = _unset,
+    Object? avatarUrl = _unset,
     ProfileGender? gender,
     DateTime? birthDate,
     ResidenceCountry? countryOfResidence,
@@ -67,11 +78,15 @@ class UserProfile {
       name: name ?? this.name,
       rating: rating,
       completedTrips: completedTrips,
+      ratingCount: ratingCount,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       email: email ?? this.email,
       avatarBytes: identical(avatarBytes, _unset)
           ? this.avatarBytes
           : avatarBytes as Uint8List?,
+      avatarUrl: identical(avatarUrl, _unset)
+          ? this.avatarUrl
+          : avatarUrl as String?,
       gender: gender ?? this.gender,
       birthDate: birthDate ?? this.birthDate,
       registeredAt: registeredAt,
@@ -85,6 +100,11 @@ class UserProfile {
   /// Ported from `ProfileRow.avatarData` — decodes the data URL form
   /// `data:image/...;base64,XXXX` into bytes; returns null if the string is
   /// missing or not a data URL.
+  /// Returns the `profiles.avatar_url` value when it's a remote Storage URL
+  /// (the current format); null for the legacy inline base64 form.
+  static String? avatarUrlFromColumn(String? raw) =>
+      (raw != null && raw.startsWith('http')) ? raw : null;
+
   static Uint8List? decodeAvatarUrl(String? raw) {
     if (raw == null || raw.isEmpty) return null;
     final marker = raw.indexOf('base64,');
@@ -113,7 +133,12 @@ class UserProfile {
       .map((part) => part[0])
       .join();
 
-  String get ratingText => rating.toStringAsFixed(1);
+  /// Whether the user has any ratings behind [rating].
+  bool get hasRating => ratingCount > 0;
+
+  /// Compact rating for badges — a dash when the user has no reviews yet, so
+  /// new users don't appear to have a perfect 5.0 (QA #20).
+  String get ratingText => hasRating ? rating.toStringAsFixed(1) : '—';
 
   int? get age {
     final birth = birthDate;
@@ -163,6 +188,10 @@ class PublicProfileStats {
 
   final int driverTripsCount;
   final int passengerTripsCount;
+
+  /// Authoritative total used in the profile header so it matches the
+  /// per-role breakdown shown in the stats card (QA #21).
+  int get totalTrips => driverTripsCount + passengerTripsCount;
 
   static const empty =
       PublicProfileStats(driverTripsCount: 0, passengerTripsCount: 0);

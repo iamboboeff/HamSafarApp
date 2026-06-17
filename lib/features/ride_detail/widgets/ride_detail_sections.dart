@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../domain/ride_detail_state.dart';
+import '../../../models/ride_passenger_booking.dart';
 import '../../../models/user_profile.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text.dart';
@@ -73,11 +74,13 @@ class RideLocationRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: HSText.headline,
               ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: HSText.caption.copyWith(color: context.secondaryText),
-              ),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: HSText.caption.copyWith(color: context.secondaryText),
+                ),
+              ],
             ],
           ),
         ),
@@ -199,6 +202,7 @@ class RidePassengerDriverRow extends StatelessWidget {
         ProfileAvatar(
           initials: driver.initials,
           avatarBytes: driver.avatarBytes,
+          avatarUrl: driver.avatarUrl,
           size: 52,
         ),
         const SizedBox(width: 12),
@@ -257,6 +261,138 @@ class RideDetailPlainSection extends StatelessWidget {
         Text(title, style: HSText.headline),
         const SizedBox(height: 14),
         child,
+      ],
+    );
+  }
+}
+
+/// Ported from `DriverRidePassengersSection` in `RideDetailSections.swift` —
+/// the confirmed ("active") passengers of the driver's ride, each with a chat
+/// shortcut and (when managing) a cancel-booking action.
+class DriverRidePassengersSection extends StatelessWidget {
+  const DriverRidePassengersSection({
+    super.key,
+    required this.confirmedPassengers,
+    required this.canRemovePassengers,
+    required this.onOpenChat,
+    required this.onRemovePassenger,
+    required this.onOpenProfile,
+  });
+
+  final List<RidePassengerBooking> confirmedPassengers;
+  final bool canRemovePassengers;
+  final void Function(RidePassengerBooking) onOpenChat;
+  final void Function(RidePassengerBooking) onRemovePassenger;
+  final void Function(RidePassengerBooking) onOpenProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    return RideDetailPlainSection(
+      title: 'Пассажиры по поездке',
+      child: confirmedPassengers.isEmpty
+          ? Text(
+              'Пока нет активных заявок по этой поездке.',
+              style: HSText.subheadline.copyWith(color: context.secondaryText),
+            )
+          : Column(
+              children: [
+                for (var i = 0; i < confirmedPassengers.length; i++) ...[
+                  _PassengerRow(
+                    booking: confirmedPassengers[i],
+                    canRemove: canRemovePassengers,
+                    onOpenChat: onOpenChat,
+                    onRemove: onRemovePassenger,
+                    onOpenProfile: onOpenProfile,
+                  ),
+                  if (i < confirmedPassengers.length - 1)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Divider(height: 1),
+                    ),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class _PassengerRow extends StatelessWidget {
+  const _PassengerRow({
+    required this.booking,
+    required this.canRemove,
+    required this.onOpenChat,
+    required this.onRemove,
+    required this.onOpenProfile,
+  });
+
+  final RidePassengerBooking booking;
+  final bool canRemove;
+  final void Function(RidePassengerBooking) onOpenChat;
+  final void Function(RidePassengerBooking) onRemove;
+  final void Function(RidePassengerBooking) onOpenProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    final canProfile = booking.passenger.backendId != null;
+    return Column(
+      children: [
+        Row(
+          children: [
+            ProfileAvatar(
+              initials: booking.passenger.initials,
+              avatarBytes: booking.passenger.avatarBytes,
+              avatarUrl: booking.passenger.avatarUrl,
+              size: 46,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(booking.passenger.name, style: HSText.headline),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${booking.status} • ${booking.seatsCount} мест(а)',
+                    style: HSText.subheadline.copyWith(
+                      color: context.secondaryText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (canProfile)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onOpenProfile(booking),
+                child: Icon(
+                  Icons.chevron_right,
+                  size: 16,
+                  color: context.secondaryText,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => onOpenChat(booking),
+                child: const Text('Написать'),
+              ),
+            ),
+            if (canRemove) ...[
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => onRemove(booking),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Отменить бронь'),
+                ),
+              ),
+            ],
+          ],
+        ),
       ],
     );
   }

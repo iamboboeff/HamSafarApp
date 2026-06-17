@@ -75,7 +75,11 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
             ),
             title: city.name,
             subtitle: country.name,
-            keywords: [city.name, country.name, ...country.regions],
+            // Keyword match is per-city: the city's own name plus the country.
+            // Previously every city also carried the whole `country.regions`
+            // list, so typing a Tajik city that's also a region (Рудаки, Восе…)
+            // matched all 32 cities and the list never narrowed (QA #62).
+            keywords: [city.name, country.name],
           ),
     ];
   }
@@ -83,9 +87,19 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
-    final options = _query.trim().isEmpty
+    final query = _query.trim().toLowerCase();
+    // Order matches so cities whose name starts with the query come first,
+    // then alphabetically — typing a city name now surfaces it at the top
+    // instead of leaving results in raw directory order (QA #62).
+    final options = query.isEmpty
         ? _allOptions
-        : _allOptions.where((o) => o.matches(_query)).toList();
+        : (_allOptions.where((o) => o.matches(_query)).toList()
+          ..sort((a, b) {
+            final aStarts = a.title.toLowerCase().startsWith(query);
+            final bStarts = b.title.toLowerCase().startsWith(query);
+            if (aStarts != bStarts) return aStarts ? -1 : 1;
+            return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          }));
 
     return FractionallySizedBox(
       heightFactor: 0.92,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/net_status.dart';
 import '../../core/supabase/supabase_service.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/residence_country.dart';
@@ -13,6 +14,7 @@ import '../../theme/app_text.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/glass_card.dart';
 import '../profile/widgets/profile_widgets.dart';
+import 'forgot_password_screen.dart';
 import 'widgets/auth_field.dart';
 
 /// Ported from `AuthFlowMode` in `AuthenticationViews.swift`.
@@ -44,6 +46,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _password = TextEditingController();
   final _confirmPassword = TextEditingController();
   final _otp = TextEditingController();
+  final _otpFocus = FocusNode();
 
   late DateTime _birthDate = DateTime(
     DateTime.now().year - 24,
@@ -56,6 +59,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   bool _isLoading = false;
   int _resendCountdown = 0;
   Timer? _resendTimer;
+  int _retryCountdown = 0;
+  Timer? _retryTimer;
   String? _statusMessage;
   String? _errorMessage;
 
@@ -66,7 +71,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     _password.dispose();
     _confirmPassword.dispose();
     _otp.dispose();
+    _otpFocus.dispose();
     _resendTimer?.cancel();
+    _retryTimer?.cancel();
     super.dispose();
   }
 
@@ -75,6 +82,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     DateTime.now().month,
     DateTime.now().day,
   );
+
+  /// Oldest selectable birth date. The previous hard floor of 1940 locked out
+  /// anyone older than ~86; allow up to 100 years so older users can register
+  /// (QA #29).
+  DateTime get _maxBirthDate => DateTime(
+    DateTime.now().year - 100,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+
+  /// Names must be letters (any alphabet), spaces, hyphens or apostrophes —
+  /// digits/symbols are rejected with a clear error (QA #66).
+  static final RegExp _namePattern =
+      RegExp(r"^[\p{L}][\p{L}\s'’-]*$", unicode: true);
 
   void _startResendCountdown() {
     _resendTimer?.cancel();
@@ -103,14 +124,46 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           .signInWithEmailPassword(
             email: _email.text,
             password: _password.text,
-          );
+          )
+          .timeout(const Duration(seconds: 20));
       ref.read(sessionProvider.notifier).applySession(data);
       if (mounted) Navigator.of(context).pop();
     } on SupabaseServiceError catch (e) {
       setState(() => _errorMessage = e.message);
+    } catch (e) {
+      // Offline / timeout / unexpected — don't leave the user on an endless
+      // spinner with no explanation (QA #92).
+      setState(() => _errorMessage =
+          isOfflineError(e) ? offlineMessage : 'Не удалось войти. Попробуйте ещё раз.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Live countdown shown when registration is rate-limited, so the user sees
+  /// exactly how long until the next allowed attempt (QA #80).
+  void _startRetryCountdown(int seconds) {
+    _retryTimer?.cancel();
+    setState(() {
+      _retryCountdown = seconds;
+      _errorMessage = 'Слишком много попыток. Попробуйте снова через $seconds сек.';
+    });
+    _retryTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _retryCountdown--;
+        if (_retryCountdown <= 0) {
+          timer.cancel();
+          _errorMessage = null;
+        } else {
+          _errorMessage =
+              'Слишком много попыток. Попробуйте снова через $_retryCountdown сек.';
+        }
+      });
+    });
   }
 
   Future<void> _handleRegister() async {
@@ -125,12 +178,21 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       setState(() => _errorMessage = 'Укажите имя.');
       return;
     }
+    if (!_namePattern.hasMatch(name)) {
+      setState(() => _errorMessage = 'Неверный формат имени.');
+      return;
+    }
     if (email.isEmpty) {
       setState(() => _errorMessage = 'Укажите email.');
       return;
     }
     if (_password.text.length < 6) {
       setState(() => _errorMessage = 'Пароль должен быть минимум 6 символов.');
+      return;
+    }
+    if (_password.text != _password.text.trim()) {
+      setState(() => _errorMessage =
+          'Пароль не должен начинаться или заканчиваться пробелом.');
       return;
     }
     if (_password.text != _confirmPassword.text) {
@@ -173,9 +235,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           _statusMessage = 'Код отправлен на $email.';
         });
         _startResendCountdown();
+        // Move focus straight to the code field so the user can type the OTP
+        // without hunting for it (QA #87).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _otpFocus.requestFocus();
+        });
       }
     } on SupabaseServiceError catch (e) {
-      setState(() => _errorMessage = e.message);
+      if (e.retryAfterSeconds != null) {
+        _startRetryCountdown(e.retryAfterSeconds!);
+      } else {
+        setState(() => _errorMessage = e.message);
+      }
+    } catch (e) {
+      setState(() => _errorMessage = isOfflineError(e)
+          ? offlineMessage
+          : 'Не удалось завершить регистрацию. Попробуйте ещё раз.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -205,7 +280,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _birthDate,
-      firstDate: DateTime(1940),
+      firstDate: _maxBirthDate,
       lastDate: _minBirthDate,
     );
     if (picked != null) setState(() => _birthDate = picked);
@@ -222,7 +297,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
-        title: const Text('Войти'),
+        // Reflect the selected mode instead of a static "Войти" (QA #24).
+        title: Text(_flow == AuthFlowMode.signIn ? 'Вход' : 'Регистрация'),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.of(context).pop(),
@@ -240,7 +316,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, kToolbarHeight + 12, 20, 40),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
             child: AbsorbPointer(
               absorbing: _isLoading,
               child: Column(
@@ -332,7 +408,33 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         isLoading: _isLoading,
         onPressed: _isLoading ? null : _handleSignIn,
       ),
+      const SizedBox(height: 12),
+      Center(
+        child: GestureDetector(
+          onTap: _isLoading ? null : _openPasswordRecovery,
+          child: Text(
+            'Забыли пароль?',
+            style: HSText.footnote.copyWith(
+              fontWeight: FontWeight.w600,
+              color: context.hs.primary,
+            ),
+          ),
+        ),
+      ),
     ];
+  }
+
+  Future<void> _openPasswordRecovery() async {
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(initialEmail: _email.text.trim()),
+      ),
+    );
+    // Pre-fill the email returned from a successful reset so the user can log
+    // in straight away (QA #67).
+    if (email != null && email.isNotEmpty && mounted) {
+      setState(() => _email.text = email);
+    }
   }
 
   List<Widget> _registerFields() {
@@ -383,6 +485,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         AuthField(
           title: 'Код из письма',
           controller: _otp,
+          focusNode: _otpFocus,
           icon: Icons.tag,
           keyboardType: TextInputType.number,
         ),
@@ -391,7 +494,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       PrimaryFilledButton(
         label: _hasSentOtp ? 'Завершить регистрацию' : 'Получить код',
         isLoading: _isLoading,
-        onPressed: _isLoading ? null : _handleRegister,
+        onPressed:
+            (_isLoading || _retryCountdown > 0) ? null : _handleRegister,
       ),
       if (_hasSentOtp) ...[
         const SizedBox(height: 12),

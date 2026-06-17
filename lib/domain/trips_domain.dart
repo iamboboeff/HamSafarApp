@@ -38,8 +38,9 @@ abstract final class TripsDomain {
           !ride.hasFinished &&
           !isCurrentUser(ride.driver) &&
           isRideVisibleToPassengers(ride, bookedTrips) &&
-          (ride.availableSeatsCount >= minimumSeats ||
-              ride.availableSeatsCount == 0);
+          // A fully-booked ride (0 free seats) must not appear in passenger
+          // search results (QA #32).
+          ride.availableSeatsCount >= minimumSeats;
     }).toList();
   }
 

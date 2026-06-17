@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/activity_notification.dart';
+import '../../models/app_tab.dart';
 import '../../state/activity_state.dart';
+import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/glass_card.dart';
 
 /// Ported from `ActivityNotificationsView` in `ChatSupportViews.swift`.
@@ -27,6 +28,18 @@ class _ActivityNotificationsScreenState
     });
   }
 
+  /// Tapping a notification takes the user to the relevant area. The rows carry
+  /// no deep-link payload yet, so chat-type notifications open the chat tab and
+  /// everything else (trip/request/booking events) opens "Мои поездки".
+  void _openNotification(ActivityNotification n) {
+    final type = n.type.toLowerCase();
+    final isChat = type.contains('chat') || type.contains('message');
+    Navigator.of(context).maybePop();
+    ref
+        .read(selectedTabProvider.notifier)
+        .select(isChat ? AppTab.inbox : AppTab.trips);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(activityProvider);
@@ -36,11 +49,23 @@ class _ActivityNotificationsScreenState
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           if (state.isLoading && state.notifications.isEmpty)
             const Center(child: CircularProgressIndicator())
           else if (state.notifications.isEmpty)
-            const _EmptyState()
+            // Pull-to-refresh works on the empty state too (QA #85).
+            RefreshIndicator(
+              onRefresh: () => ref.read(activityProvider.notifier).refresh(),
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints:
+                        BoxConstraints(minHeight: constraints.maxHeight),
+                    child: const _EmptyState(),
+                  ),
+                ),
+              ),
+            )
           else
             RefreshIndicator(
               onRefresh: () => ref.read(activityProvider.notifier).refresh(),
@@ -48,8 +73,13 @@ class _ActivityNotificationsScreenState
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                 itemCount: state.notifications.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (_, index) =>
-                    _ActivityRow(notification: state.notifications[index]),
+                itemBuilder: (_, index) {
+                  final n = state.notifications[index];
+                  return _ActivityRow(
+                    notification: n,
+                    onTap: () => _openNotification(n),
+                  );
+                },
               ),
             ),
         ],
@@ -88,13 +118,17 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.notification});
+  const _ActivityRow({required this.notification, this.onTap});
   final ActivityNotification notification;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
-    return GlassCard(
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: GlassCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -141,6 +175,7 @@ class _ActivityRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

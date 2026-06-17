@@ -19,9 +19,12 @@ class _SystemStyle {
 
 /// Ported from `MessageBubble` in `ChatMessageComponents.swift`.
 class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message});
+  const MessageBubble({super.key, required this.message, this.onOpenAttachment});
 
   final ChatMessage message;
+
+  /// Invoked when the user taps an attachment, to open/preview it (QA #77).
+  final VoidCallback? onOpenAttachment;
 
   _SystemStyle _systemStyle(BuildContext context) {
     final hs = context.hs;
@@ -110,53 +113,68 @@ class MessageBubble extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (attachment != null)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: (isIncoming ? hs.primary : Colors.white).withValues(
-                      alpha: isIncoming ? 0.12 : 0.18,
+            GestureDetector(
+              onTap: onOpenAttachment,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: (isIncoming ? hs.primary : Colors.white)
+                          .withValues(alpha: isIncoming ? 0.12 : 0.18),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    child: Icon(
+                      attachment.kind == ChatAttachmentKind.photo
+                          ? Icons.photo
+                          : Icons.description,
+                      size: 18,
+                      color: fg,
+                    ),
                   ),
-                  child: Icon(
-                    attachment.kind == ChatAttachmentKind.photo
-                        ? Icons.photo
-                        : Icons.description,
-                    size: 18,
-                    color: fg,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        attachment.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: HSText.subheadlineSemibold.copyWith(color: fg),
-                      ),
-                      Text(
-                        attachment.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: HSText.caption.copyWith(
-                          color: isIncoming
-                              ? context.secondaryText
-                              : Colors.white.withValues(alpha: 0.8),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          attachment.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: HSText.subheadlineSemibold.copyWith(color: fg),
                         ),
-                      ),
-                    ],
+                        Text(
+                          attachment.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: HSText.caption.copyWith(
+                            color: isIncoming
+                                ? context.secondaryText
+                                : Colors.white.withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  if (onOpenAttachment != null) ...[
+                    const SizedBox(width: 8),
+                    Icon(
+                      attachment.kind == ChatAttachmentKind.photo
+                          ? Icons.open_in_full
+                          : Icons.download_rounded,
+                      size: 16,
+                      color: isIncoming
+                          ? context.secondaryText
+                          : Colors.white.withValues(alpha: 0.85),
+                    ),
+                  ],
+                ],
+              ),
             )
           else
             Text(message.text, style: HSText.subheadline.copyWith(color: fg)),

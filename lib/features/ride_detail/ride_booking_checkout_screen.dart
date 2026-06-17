@@ -8,7 +8,6 @@ import '../../models/ride.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
-import '../../widgets/app_backdrop.dart';
 import '../../widgets/buttons.dart';
 import 'widgets/ride_detail_sections.dart';
 
@@ -64,6 +63,12 @@ class _RideBookingCheckoutScreenState
     if (!mounted) return;
     setState(() => _isSubmitting = false);
 
+    if (errorMessage == null) {
+      // First contextually-relevant moment for push: the passenger will want
+      // to hear when the driver confirms. Prompts once; later calls no-op.
+      ref.read(sessionProvider.notifier).ensurePushPermission();
+    }
+
     if (errorMessage != null) {
       await showDialog<void>(
         context: context,
@@ -113,10 +118,15 @@ class _RideBookingCheckoutScreenState
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(),
-      body: Stack(
+      // Tap anywhere outside the message field to dismiss the keyboard — the
+      // multiline field never submits on return, so users need this to get the
+      // keyboard out of the way.
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
         fit: StackFit.expand,
         children: [
-          const AppBackdrop(),
           SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 110),
             child: Column(
@@ -167,7 +177,7 @@ class _RideBookingCheckoutScreenState
                   ],
                 ),
                 const SizedBox(height: 18),
-                Divider(color: hs.stroke.withValues(alpha: 0.8)),
+                Divider(color: hs.stroke),
                 const SizedBox(height: 18),
                 Text(
                   DateTextFormatter.weekdayDayMonth(ride.departureDate),
@@ -213,7 +223,7 @@ class _RideBookingCheckoutScreenState
                   ],
                 ),
                 const SizedBox(height: 18),
-                Divider(color: hs.stroke.withValues(alpha: 0.8)),
+                Divider(color: hs.stroke),
                 const SizedBox(height: 18),
                 Text('Всего к оплате', style: HSText.title3),
                 const SizedBox(height: 14),
@@ -242,7 +252,7 @@ class _RideBookingCheckoutScreenState
                   ],
                 ),
                 const SizedBox(height: 18),
-                Divider(color: hs.stroke.withValues(alpha: 0.8)),
+                Divider(color: hs.stroke),
                 const SizedBox(height: 18),
                 Text(
                   'Напишите пользователю ${ride.driver.name}, чтобы повысить '
@@ -272,19 +282,25 @@ class _RideBookingCheckoutScreenState
             ),
           ),
         ],
+        ),
       ),
       bottomNavigationBar: Container(
         color: hs.cardBackground,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Divider(height: 1, color: hs.stroke.withValues(alpha: 0.9)),
+            Divider(height: 1, color: hs.stroke),
             Padding(
+              // Add the keyboard inset so the action button rises above the
+              // keyboard instead of being hidden behind it (bottomNavigationBar
+              // is otherwise pinned to the physical bottom of the screen).
               padding: EdgeInsets.fromLTRB(
                 20,
                 8,
                 20,
-                12 + MediaQuery.of(context).padding.bottom,
+                12 +
+                    MediaQuery.of(context).viewInsets.bottom +
+                    MediaQuery.of(context).padding.bottom,
               ),
               child: PrimaryFilledButton(
                 label: _instant ? 'Забронировать сразу' : 'Отправить запрос',

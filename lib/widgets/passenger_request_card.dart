@@ -53,7 +53,8 @@ class PassengerRequestCard extends StatelessWidget {
                 const Spacer(),
                 Text(
                   'Нужно $seats ${seats == 1 ? 'место' : 'места'}',
-                  style: HSText.captionSemibold.copyWith(color: hs.warm),
+                  style:
+                      HSText.captionSemibold.copyWith(color: context.secondaryText),
                 ),
               ],
             ),
@@ -83,6 +84,7 @@ class PassengerRequestCard extends StatelessWidget {
                 ProfileAvatar(
                   initials: request.passenger.initials,
                   avatarBytes: request.passenger.avatarBytes,
+                  avatarUrl: request.passenger.avatarUrl,
                   size: 42,
                 ),
                 const SizedBox(width: 10),

@@ -42,7 +42,7 @@ enum AppLanguage {
 
 /// Ported from `AppThemePreference`.
 enum AppThemePreference {
-  system('Как в системе'),
+  system('Авто'),
   light('Светлая'),
   dark('Тёмная');
 

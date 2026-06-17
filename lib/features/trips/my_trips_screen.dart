@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/my_trips_domain.dart';
@@ -8,7 +9,6 @@ import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/app_backdrop.dart';
-import '../../widgets/buttons.dart';
 import '../ride_detail/passenger_request_detail_screen.dart';
 import '../ride_detail/ride_detail_screen.dart';
 import 'matching_drivers_screen.dart';
@@ -99,12 +99,24 @@ class _SectionPage extends ConsumerWidget {
       passengerRequests: myRequests,
     );
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final item in items) ...[
+    return RefreshIndicator(
+      onRefresh: () => Future.wait([
+        ref.read(bookedTripsProvider.notifier).refresh(),
+        ref.read(myPassengerRequestsProvider.notifier).refresh(),
+        ref.read(marketplaceProvider.notifier).refresh(),
+      ]),
+      child: SingleChildScrollView(
+        // Clamp the over-scroll so the iOS rubber-band can't drag the short
+        // list far down and reveal a blank backdrop — pull-to-refresh still
+        // works (the indicator triggers on the clamped over-scroll).
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: ClampingScrollPhysics(),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final item in items) ...[
             switch (item) {
               TripDisplayItem(:final trip) => BookedTripCard(
                 trip: trip,
@@ -119,7 +131,7 @@ class _SectionPage extends ConsumerWidget {
                     .read(bookedTripsProvider.notifier)
                     .setSearchPassengers(trip.id, value),
                 onOpenMatches: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
+                  HSRoute<void>(
                     builder: (_) => MatchingDriversScreen(
                       fromCity: trip.ride.fromCity,
                       toCity: trip.ride.toCity,
@@ -128,12 +140,12 @@ class _SectionPage extends ConsumerWidget {
                   ),
                 ),
                 onOpenPassengerRequests: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
+                  HSRoute<void>(
                     builder: (_) => MatchingPassengersScreen(trip: trip),
                   ),
                 ),
                 onOpenDetails: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
+                  HSRoute<void>(
                     builder: (_) => RideDetailScreen(
                       ride: trip.ride,
                       bookedTrip: trip,
@@ -154,7 +166,7 @@ class _SectionPage extends ConsumerWidget {
                   isCurrentUser: isCurrentUser,
                 ),
                 onOpenMatches: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
+                  HSRoute<void>(
                     builder: (_) => MatchingDriversScreen(
                       fromCity: request.fromCity,
                       toCity: request.toCity,
@@ -163,27 +175,32 @@ class _SectionPage extends ConsumerWidget {
                   ),
                 ),
                 onOpenDetails: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        PassengerRequestDetailScreen(request: request),
+                  HSRoute<void>(
+                    builder: (_) => PassengerRequestDetailScreen(
+                      request: request,
+                      isOwnRequest: true,
+                    ),
                   ),
                 ),
+                onRepeat: () => ref
+                    .read(selectedTabProvider.notifier)
+                    .select(AppTab.create),
               ),
             },
             const SizedBox(height: 16),
           ],
           if (items.isEmpty)
             section == TripSection.active
-                ? _EmptyTripsCard(
-                    onCreate: () => ref
-                        .read(selectedTabProvider.notifier)
-                        .select(AppTab.create),
-                  )
+                ? const _EmptyTripsCard()
                 : _EmptyTripsInfo(
                     title: MyTripsDomain.emptyStateTitle(section),
                     subtitle: MyTripsDomain.emptyStateSubtitle(section),
+                    asset: section == TripSection.requests
+                        ? 'assets/images/empty_trips_requests.png'
+                        : 'assets/images/empty_trips_history.png',
                   ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -200,14 +217,14 @@ class _SectionTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        for (var i = 0; i < TripSection.values.length; i++) ...[
-          if (i > 0) const SizedBox(width: 24),
-          _TabItem(
-            title: TripSection.values[i].title,
-            isSelected: selectedIndex == i,
-            onTap: () => onSelect(i),
+        for (var i = 0; i < TripSection.values.length; i++)
+          Expanded(
+            child: _TabItem(
+              title: TripSection.values[i].title,
+              isSelected: selectedIndex == i,
+              onTap: () => onSelect(i),
+            ),
           ),
-        ],
       ],
     );
   }
@@ -234,6 +251,7 @@ class _TabItem extends StatelessWidget {
         children: [
           Text(
             title,
+            textAlign: TextAlign.center,
             style: HSText.subheadlineSemibold.copyWith(
               color: isSelected ? context.primaryText : context.secondaryText,
             ),
@@ -241,7 +259,6 @@ class _TabItem extends StatelessWidget {
           const SizedBox(height: 10),
           Container(
             height: 3,
-            width: 56,
             decoration: BoxDecoration(
               color: isSelected ? context.hs.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(100),
@@ -255,31 +272,35 @@ class _TabItem extends StatelessWidget {
 
 /// Ported from `EmptyTripsStateCard` in `MyTripsViews.swift`.
 class _EmptyTripsCard extends StatelessWidget {
-  const _EmptyTripsCard({required this.onCreate});
-
-  final VoidCallback onCreate;
+  const _EmptyTripsCard();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+      padding: const EdgeInsets.fromLTRB(24, 4, 24, 10),
       child: Column(
         children: [
-          Icon(Icons.directions_car, color: context.hs.primary),
-          const SizedBox(height: 14),
+          Image.asset(
+            'assets/images/empty_trips_active.png',
+            height: 255,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(height: 4),
           Text(
             'У вас пока нет предстоящих поездок',
             textAlign: TextAlign.center,
-            style: HSText.headline,
+            style: HSText.title3.copyWith(fontSize: 22, height: 1.2),
           ),
           const SizedBox(height: 8),
           Text(
             'Создайте новую поездку или запрос, и они появятся здесь.',
             textAlign: TextAlign.center,
-            style: HSText.subheadline.copyWith(color: context.secondaryText),
+            style: HSText.body.copyWith(
+              fontSize: 16,
+              height: 1.4,
+              color: context.secondaryText,
+            ),
           ),
-          const SizedBox(height: 14),
-          PrimaryFilledButton(label: 'Создать поездку', onPressed: onCreate),
         ],
       ),
     );
@@ -288,23 +309,40 @@ class _EmptyTripsCard extends StatelessWidget {
 
 /// Ported from `EmptyTripsInfoBlock` in `MyTripsViews.swift`.
 class _EmptyTripsInfo extends StatelessWidget {
-  const _EmptyTripsInfo({required this.title, required this.subtitle});
+  const _EmptyTripsInfo({
+    required this.title,
+    required this.subtitle,
+    this.asset,
+  });
 
   final String title;
   final String subtitle;
+  final String? asset;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+      padding: const EdgeInsets.fromLTRB(24, 4, 24, 10),
       child: Column(
         children: [
-          Text(title, textAlign: TextAlign.center, style: HSText.headline),
-          const SizedBox(height: 10),
+          if (asset != null) ...[
+            Image.asset(asset!, height: 255, fit: BoxFit.contain),
+            const SizedBox(height: 4),
+          ],
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: HSText.title3.copyWith(fontSize: 22, height: 1.2),
+          ),
+          const SizedBox(height: 8),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: HSText.subheadline.copyWith(color: context.secondaryText),
+            style: HSText.body.copyWith(
+              fontSize: 16,
+              height: 1.4,
+              color: context.secondaryText,
+            ),
           ),
         ],
       ),

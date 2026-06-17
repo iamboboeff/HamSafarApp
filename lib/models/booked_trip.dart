@@ -16,6 +16,7 @@ class BookedTrip {
     this.searchPassengersEnabled = false,
     this.confirmedPassengerCount = 0,
     this.pendingPassengerCount = 0,
+    this.cancelReason,
   });
 
   final String id;
@@ -29,6 +30,11 @@ class BookedTrip {
   final bool searchPassengersEnabled;
   final int confirmedPassengerCount;
   final int pendingPassengerCount;
+
+  /// Reason a booking was cancelled, as set server-side. `'expired'` marks an
+  /// auto-expired pending request so the UI can say "Истекла" rather than
+  /// "Отменена". Null for ordinary cancellations.
+  final String? cancelReason;
 
   BookedTrip copyWith({
     String? status,
@@ -52,10 +58,15 @@ class BookedTrip {
           confirmedPassengerCount ?? this.confirmedPassengerCount,
       pendingPassengerCount:
           pendingPassengerCount ?? this.pendingPassengerCount,
+      cancelReason: cancelReason,
     );
   }
 
   bool get isCancelled => status.toLowerCase().contains('отмен');
+
+  /// True when this booking was auto-expired (a pending request the driver
+  /// never answered within the window), as opposed to a manual cancellation.
+  bool get isExpired => isCancelled && cancelReason == 'expired';
 
   bool get noPassengerFound {
     if (role != TripRole.driver || isCancelled || !ride.hasFinished) {
@@ -89,7 +100,7 @@ class BookedTrip {
   }
 
   String get displayStatus {
-    if (isCancelled) return 'Отменена';
+    if (isCancelled) return isExpired ? 'Истекла' : 'Отменена';
     if (noPassengerFound) return 'Пассажир не найден';
     if (isCompleted) return 'Завершена';
     if (isInProgress) return 'В пути';

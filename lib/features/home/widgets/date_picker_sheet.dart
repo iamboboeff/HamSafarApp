@@ -73,7 +73,11 @@ class _DatePickerSheetState extends State<_DatePickerSheet> {
                 child: MonthCalendar(
                   selectedDate: _selected,
                   earliestDate: _earliest,
-                  scrollHeight: double.infinity,
+                  // null => fill the sheet's bounded Expanded via an inner
+                  // Expanded. Passing double.infinity here used to wrap the
+                  // ListView in a SizedBox(height: infinity), giving the
+                  // viewport unbounded height and rendering an empty calendar.
+                  scrollHeight: null,
                   onSelect: (date) {
                     setState(() => _selected = date);
                     Future.delayed(const Duration(milliseconds: 120), () {
