@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../models/ride_search.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_dimens.dart';
@@ -24,7 +25,7 @@ class RecentSearchesSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader(title: 'История поиска'),
+        SectionHeader(title: tr('История поиска')),
         const SizedBox(height: HSSpacing.compact),
         for (final item in items)
           GestureDetector(
@@ -70,7 +71,7 @@ class _SearchHistoryRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Быстрый повтор поиска',
+                  tr('Быстрый повтор поиска'),
                   style: HSText.caption.copyWith(color: context.secondaryText),
                 ),
               ],

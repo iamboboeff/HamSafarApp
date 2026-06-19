@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/l10n.dart';
 import '../../../domain/date_formatter.dart';
 import '../../../state/app_state.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_dimens.dart';
 import '../../../theme/app_text.dart';
+import '../../../widgets/buttons.dart';
 import 'date_picker_sheet.dart';
 import 'location_picker_sheet.dart';
 
@@ -32,7 +34,7 @@ class SearchCard extends ConsumerWidget {
     Future<void> pickFrom() async {
       final result = await showLocationPicker(
         context,
-        title: 'Откуда',
+        title: tr('Откуда'),
         availableCountries: countries,
       );
       if (result != null) notifier.setFrom(result);
@@ -41,7 +43,7 @@ class SearchCard extends ConsumerWidget {
     Future<void> pickTo() async {
       final result = await showLocationPicker(
         context,
-        title: 'Куда',
+        title: tr('Куда'),
         availableCountries: countries,
       );
       if (result != null) notifier.setTo(result);
@@ -55,21 +57,28 @@ class SearchCard extends ConsumerWidget {
       if (result != null) notifier.setDate(result);
     }
 
-    // Flat card — single solid `hs.cardBackground` fill. Previously had a
-    // 3-stop diagonal gradient with a `hs.primary @ 0.08` tint in the
-    // bottom-right corner that read as a glare on dark theme; user asked to
-    // remove it. Keeps the saturated primary stroke (matches iOS), but
-    // softens it slightly so the rim doesn't compete with the contents.
+    Future<void> pickPassengers() async {
+      final result = await showPassengersPickerSheet(
+        context,
+        initialCount: search.passengers,
+      );
+      if (result != null) notifier.setPassengers(result);
+    }
+
+    // Flat card — single solid `hs.cardBackground` fill. The primary rim is
+    // painted as a `foregroundDecoration` (over the children), NOT as a
+    // `decoration` border (under them). The card clips its content to the
+    // rounded rect — including the flush submit button — and the stroke is
+    // then drawn on top as one continuous line all the way around. Drawing it
+    // as an ordinary border let the antialiased clip and the seam where the
+    // stroke crossed the bright submit button read as an uneven/ragged rim;
+    // the foreground stroke is crisp and even. A 1.5px width stays sharp.
     final cardRadius = BorderRadius.circular(HSRadius.large);
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: hs.cardBackground,
         borderRadius: cardRadius,
-        border: Border.all(
-          color: hs.primary.withValues(alpha: 0.55),
-          width: 1.2,
-        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.18),
@@ -77,6 +86,13 @@ class SearchCard extends ConsumerWidget {
             offset: const Offset(0, 8),
           ),
         ],
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: cardRadius,
+        border: Border.all(
+          color: hs.primary.withValues(alpha: 0.6),
+          width: 1.5,
+        ),
       ),
       child: Column(
         children: [
@@ -97,7 +113,7 @@ class SearchCard extends ConsumerWidget {
                 _FieldButton(
                   icon: Icons.radio_button_checked,
                   iconColor: hs.primary,
-                  title: 'Откуда',
+                  title: tr('Откуда'),
                   value: searchState.hasSelectedFrom
                       ? search.fromLocation?.city.name
                       : null,
@@ -107,7 +123,7 @@ class SearchCard extends ConsumerWidget {
                 _FieldButton(
                   icon: Icons.navigation_rounded,
                   iconColor: hs.orange,
-                  title: 'Куда',
+                  title: tr('Куда'),
                   value: searchState.hasSelectedTo
                       ? search.toLocation?.city.name
                       : null,
@@ -117,9 +133,23 @@ class SearchCard extends ConsumerWidget {
                 _FieldButton(
                   icon: Icons.calendar_today,
                   iconColor: hs.primary,
-                  title: 'Когда',
-                  value: _dateValue(search.date),
+                  title: tr('Когда'),
+                  // Defaults to "Все даты" until the rider picks a concrete day.
+                  value: searchState.hasSelectedDate
+                      ? _dateValue(search.date)
+                      : tr('Все даты'),
                   onTap: pickDate,
+                ),
+                const _CardDivider(),
+                // Passenger count, mirroring the reference search card — lets
+                // riders ask for several seats up front. Always has a value
+                // (defaults to 1), so it renders in primary text.
+                _FieldButton(
+                  icon: Icons.person_outline,
+                  iconColor: hs.primary,
+                  title: tr('Пассажиры'),
+                  value: _passengersValue(search.passengers),
+                  onTap: pickPassengers,
                 ),
               ],
             ),
@@ -135,9 +165,18 @@ class SearchCard extends ConsumerWidget {
   }
 
   static String _dateValue(DateTime date) {
-    if (DateUtilsX.isToday(date)) return 'Сегодня';
-    if (DateUtilsX.isTomorrow(date)) return 'Завтра';
+    if (DateUtilsX.isToday(date)) return tr('Сегодня');
+    if (DateUtilsX.isTomorrow(date)) return tr('Завтра');
     return DateTextFormatter.dayMonthYear(date);
+  }
+
+  // Count is clamped to 1..4, so only the singular ("пассажир") and the 2–4
+  // genitive-singular ("пассажира") Russian forms can occur. Tajik has no such
+  // count agreement — both templates map to the single «{count} мусофир» form.
+  static String _passengersValue(int count) {
+    return count == 1
+        ? trf('{count} пассажир', {'count': count})
+        : trf('{count} пассажира', {'count': count});
   }
 }
 
@@ -238,12 +277,137 @@ class _SubmitButton extends StatelessWidget {
                   ),
                 )
               : Text(
-                  'Поиск',
+                  tr('Поиск'),
                   style: HSText.headline.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact bottom sheet for choosing the passenger count (clamped 1..4) with
+/// a − N + stepper, matching the date/location pickers' presentation.
+Future<int?> showPassengersPickerSheet(
+  BuildContext context, {
+  required int initialCount,
+}) {
+  return showModalBottomSheet<int>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _PassengersPickerSheet(initialCount: initialCount),
+  );
+}
+
+class _PassengersPickerSheet extends StatefulWidget {
+  const _PassengersPickerSheet({required this.initialCount});
+
+  final int initialCount;
+
+  @override
+  State<_PassengersPickerSheet> createState() => _PassengersPickerSheetState();
+}
+
+class _PassengersPickerSheetState extends State<_PassengersPickerSheet> {
+  static const int _min = 1;
+  static const int _max = 4;
+  late int _count = widget.initialCount.clamp(_min, _max);
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    return Container(
+      decoration: BoxDecoration(
+        color: hs.background,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        20 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: hs.stroke,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 22),
+          Text(tr('Сколько пассажиров?'), style: HSText.headline),
+          const SizedBox(height: 28),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _StepperButton(
+                icon: Icons.remove,
+                enabled: _count > _min,
+                onTap: () => setState(() => _count--),
+              ),
+              SizedBox(
+                width: 96,
+                child: Text(
+                  '$_count',
+                  textAlign: TextAlign.center,
+                  style: HSText.largeTitle,
+                ),
+              ),
+              _StepperButton(
+                icon: Icons.add,
+                enabled: _count < _max,
+                onTap: () => setState(() => _count++),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          PrimaryFilledButton(
+            label: tr('Готово'),
+            onPressed: () => Navigator.of(context).pop(_count),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepperButton extends StatelessWidget {
+  const _StepperButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    return Opacity(
+      opacity: enabled ? 1 : 0.4,
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: 56,
+          height: 56,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: hs.primary, width: 1.5),
+          ),
+          child: Icon(icon, size: 24, color: hs.primary),
         ),
       ),
     );

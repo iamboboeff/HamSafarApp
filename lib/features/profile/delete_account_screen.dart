@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../core/supabase/supabase_service.dart';
 import '../../state/app_state.dart';
@@ -41,18 +42,20 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Удалить аккаунт?'),
+        title: Text(tr('Удалить аккаунт?')),
         content: Text(
-          'Причина: ${_reason.title}. Это действие нельзя отменить.',
+          trf('Причина: {reason}. Это действие нельзя отменить.', {
+            'reason': tr(_reason.title),
+          }),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
+            child: Text(tr('Отмена')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Удалить'),
+            child: Text(tr('Удалить')),
           ),
         ],
       ),
@@ -70,7 +73,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       if (!mounted) return;
       navigator.popUntil((route) => route.isFirst);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Аккаунт удалён.')),
+        SnackBar(content: Text(tr('Аккаунт удалён.'))),
       );
     } on SupabaseServiceError catch (e) {
       if (!mounted) return;
@@ -80,7 +83,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       if (!mounted) return;
       setState(() => _isDeleting = false);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось удалить аккаунт.')),
+        SnackBar(content: Text(tr('Не удалось удалить аккаунт.'))),
       );
     }
   }
@@ -89,7 +92,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Удалить аккаунт')),
+      appBar: AppBar(title: Text(tr('Удалить аккаунт'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -102,13 +105,15 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Почему вы хотите удалить аккаунт?',
+                        tr('Почему вы хотите удалить аккаунт?'),
                         style: HSText.headline,
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Выберите причину. Это поможет нам понять, что стоит '
-                        'улучшить в сервисе.',
+                        tr(
+                          'Выберите причину. Это поможет нам понять, что стоит '
+                          'улучшить в сервисе.',
+                        ),
                         style: HSText.subheadline.copyWith(
                           color: context.secondaryText,
                         ),
@@ -144,7 +149,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                               ),
                               const SizedBox(width: 12),
                               Text(
-                                DeleteAccountReason.values[i].title,
+                                tr(DeleteAccountReason.values[i].title),
                                 style: HSText.bodyMedium,
                               ),
                             ],
@@ -158,7 +163,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
                 ),
                 const SizedBox(height: 16),
                 DestructiveOutlineButton(
-                  label: _isDeleting ? 'Удаляем…' : 'Продолжить удаление',
+                  label: _isDeleting
+                      ? tr('Удаляем…')
+                      : tr('Продолжить удаление'),
                   onPressed: _isDeleting ? null : _confirm,
                 ),
               ],

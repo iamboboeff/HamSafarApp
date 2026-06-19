@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 import 'user_profile.dart';
 
@@ -34,16 +36,18 @@ class RidePassengerBooking {
   }
 
   String get requestBadgeTitle {
-    if (!isPending) return 'Обновлена';
+    if (!isPending) return tr('Обновлена');
     final created = createdAt;
-    if (created == null) return 'Ожидает ответа';
+    if (created == null) return tr('Ожидает ответа');
     final minutes = DateTime.now().difference(created).inMinutes;
-    return minutes <= 15 ? 'Новая' : 'Ожидает ответа';
+    return minutes <= 15 ? tr('Новая') : tr('Ожидает ответа');
   }
 
   String? get sentAtText {
     final created = createdAt;
     if (created == null) return null;
-    return 'Отправлено ${DateTextFormatter.dayMonthTime(created)}';
+    return trf('Отправлено {time}', {
+      'time': DateTextFormatter.dayMonthTime(created),
+    });
   }
 }

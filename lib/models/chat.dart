@@ -1,12 +1,21 @@
 import 'dart:typed_data';
 
+import '../core/i18n/l10n.dart';
 import '../domain/date_formatter.dart';
 
 /// Ported from the chat model types in `Models.swift`.
 
 enum ChatMessageKind { regular, system, attachment }
 
-enum ChatMessageDeliveryStatus { sent, read }
+/// Outgoing-message lifecycle (Telegram-style):
+///  * [sending] — optimistically shown, not yet persisted to the server (clock).
+///  * [sent]    — persisted on the server (one check).
+///  * [read]    — the counterpart's last_read_at is at/after this message (two checks).
+///  * [failed]  — the write failed (e.g. offline); queued for retry (error icon).
+///
+/// [sending] and [failed] are local-only states; the server derivation only ever
+/// yields [sent] or [read].
+enum ChatMessageDeliveryStatus { sending, sent, read, failed }
 
 enum ChatAttachmentKind { photo, file }
 
@@ -33,8 +42,9 @@ class ChatAttachment {
 
   String get iconName => kind == ChatAttachmentKind.photo ? 'photo' : 'doc';
 
-  String get previewText =>
-      kind == ChatAttachmentKind.photo ? 'Фото: $title' : 'Файл: $title';
+  String get previewText => kind == ChatAttachmentKind.photo
+      ? trf('Фото: {title}', {'title': title})
+      : trf('Файл: {title}', {'title': title});
 
   /// Mirrors the `ChatAttachment` `Codable` keys used by `DBChatAttachmentPayload`.
   factory ChatAttachment.fromJson(Map<String, dynamic> json) {
@@ -42,7 +52,7 @@ class ChatAttachment {
       kind: json['kind'] == 'photo'
           ? ChatAttachmentKind.photo
           : ChatAttachmentKind.file,
-      title: (json['title'] as String?) ?? 'Вложение',
+      title: (json['title'] as String?) ?? tr('Вложение'),
       subtitle: (json['subtitle'] as String?) ?? '',
       storagePath: json['storagePath'] as String?,
       publicUrl: json['publicURL'] as String?,
@@ -102,11 +112,17 @@ class ChatMessage {
   String get previewText => attachment?.previewText ?? text;
 
   /// Returns a copy with the given fields replaced. Used by the chat store's
-  /// merge logic, which adopts an existing message's local [id].
-  ChatMessage copyWith({String? id}) {
-    final copy = ChatMessage(
+  /// merge logic (which adopts an existing message's local [id]) and by the
+  /// outgoing-message lifecycle (which flips [deliveryStatus] sending → sent /
+  /// failed in place and adopts the server [backendId] on success).
+  ChatMessage copyWith({
+    String? id,
+    String? backendId,
+    ChatMessageDeliveryStatus? deliveryStatus,
+  }) {
+    return ChatMessage(
       id: id ?? this.id,
-      backendId: backendId,
+      backendId: backendId ?? this.backendId,
       text: text,
       isIncoming: isIncoming,
       sentAt: sentAt,
@@ -114,9 +130,8 @@ class ChatMessage {
       dayLabel: dayLabel,
       kind: kind,
       attachment: attachment,
-      deliveryStatus: deliveryStatus,
+      deliveryStatus: deliveryStatus ?? this.deliveryStatus,
     );
-    return copy;
   }
 }
 
@@ -294,7 +309,7 @@ class PendingChatBookingContext {
 
 /// Shared day-label helper for chat (`Сегодня` / `Вчера` / `5 мая`).
 String chatDayLabel(DateTime date) {
-  if (DateUtilsX.isToday(date)) return 'Сегодня';
-  if (DateUtilsX.isYesterday(date)) return 'Вчера';
+  if (DateUtilsX.isToday(date)) return tr('Сегодня');
+  if (DateUtilsX.isYesterday(date)) return tr('Вчера');
   return DateTextFormatter.dayMonthShort(date);
 }

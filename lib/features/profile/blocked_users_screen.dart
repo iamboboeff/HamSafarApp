@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../models/user_profile.dart';
 import '../../state/app_state.dart';
@@ -56,14 +57,17 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
         _busy.remove(id);
       });
       messenger.showSnackBar(
-        SnackBar(content: Text('${user.name} разблокирован.')),
+        SnackBar(
+          content: Text(trf('{name} разблокирован.', {'name': user.name})),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
       setState(() => _busy.remove(id));
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Не удалось разблокировать. Попробуйте ещё раз.'),
+        SnackBar(
+          content:
+              Text(tr('Не удалось разблокировать. Попробуйте ещё раз.')),
         ),
       );
     }
@@ -73,7 +77,7 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Заблокированные пользователи')),
+      appBar: AppBar(title: Text(tr('Заблокированные пользователи'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -103,14 +107,14 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
             Icon(Icons.block, size: 44, color: context.secondaryText),
             const SizedBox(height: 14),
             Text(
-              'Вы никого не заблокировали',
+              tr('Вы никого не заблокировали'),
               style: HSText.headline,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             Text(
-              'Заблокировать пользователя можно из его профиля или чата. '
-              'Заблокированные не видят ваши поездки и сообщения.',
+              tr('Заблокировать пользователя можно из его профиля или чата. '
+                  'Заблокированные не видят ваши поездки и сообщения.'),
               style: HSText.subheadline.copyWith(color: context.secondaryText),
               textAlign: TextAlign.center,
             ),
@@ -142,7 +146,7 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
           const SizedBox(width: 8),
           OutlinedButton(
             onPressed: isBusy ? null : () => _unblock(user),
-            child: Text(isBusy ? '…' : 'Разблокировать'),
+            child: Text(isBusy ? '…' : tr('Разблокировать')),
           ),
         ],
       ),

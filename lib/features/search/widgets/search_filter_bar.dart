@@ -69,85 +69,45 @@ class DateCountChip extends StatelessWidget {
 }
 
 /// Ported from `SearchResultsFilterBar` in `SearchUIComponents.swift`.
+///
+/// Just the horizontal date chips now — the date is picked from the route
+/// summary card above, so the leading calendar icon and the trailing filter
+/// button were removed.
 class SearchFilterBar extends StatelessWidget {
   const SearchFilterBar({
     super.key,
     required this.dateOptions,
     required this.isAllDatesSelected,
     required this.selectedDate,
-    required this.onOpenCalendar,
     required this.onSelectDateOption,
-    this.onOpenFilters,
-    this.showsFilterButton = true,
   });
 
   final List<SearchDateOption> dateOptions;
   final bool isAllDatesSelected;
   final DateTime selectedDate;
-  final VoidCallback onOpenCalendar;
   final ValueChanged<SearchDateOption> onSelectDateOption;
-  final VoidCallback? onOpenFilters;
-  final bool showsFilterButton;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _IconButton(icon: Icons.calendar_today, onTap: onOpenCalendar),
-        const SizedBox(width: 8),
-        Expanded(
-          child: SizedBox(
-            height: 42,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(left: 12),
-              itemCount: dateOptions.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (context, index) {
-                final option = dateOptions[index];
-                final selected = option.isAllDates
-                    ? isAllDatesSelected
-                    : (!isAllDatesSelected &&
-                          DateUtilsX.isSameDay(option.date, selectedDate));
-                return DateCountChip(
-                  option: option,
-                  isSelected: selected,
-                  onTap: () => onSelectDateOption(option),
-                );
-              },
-            ),
-          ),
-        ),
-        if (showsFilterButton && onOpenFilters != null) ...[
-          const SizedBox(width: 8),
-          _IconButton(icon: Icons.tune, onTap: onOpenFilters!),
-        ],
-      ],
-    );
-  }
-}
-
-class _IconButton extends StatelessWidget {
-  const _IconButton({required this.icon, required this.onTap});
-
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final hs = context.hs;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 42,
-        height: 42,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: hs.cardBackground,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: hs.stroke),
-        ),
-        child: Icon(icon, size: 18, color: hs.primary),
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        itemCount: dateOptions.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final option = dateOptions[index];
+          final selected = option.isAllDates
+              ? isAllDatesSelected
+              : (!isAllDatesSelected &&
+                    DateUtilsX.isSameDay(option.date, selectedDate));
+          return DateCountChip(
+            option: option,
+            isSelected: selected,
+            onTap: () => onSelectDateOption(option),
+          );
+        },
       ),
     );
   }

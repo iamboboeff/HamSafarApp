@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../models/ride_search.dart';
 import 'date_formatter.dart';
 
@@ -29,7 +31,7 @@ List<SearchDateOption> groupedDateOptions({
   final allDates = SearchDateOption(
     key: 'all_dates',
     date: selectedDay,
-    title: 'Все даты',
+    title: tr('Все даты'),
     count: dates.length,
     isAllDates: true,
   );
@@ -48,7 +50,7 @@ List<SearchDateOption> groupedDateOptions({
 }
 
 String _searchDateLabel(DateTime date) {
-  if (DateUtilsX.isToday(date)) return 'Сегодня';
-  if (DateUtilsX.isTomorrow(date)) return 'Завтра';
+  if (DateUtilsX.isToday(date)) return tr('Сегодня');
+  if (DateUtilsX.isTomorrow(date)) return tr('Завтра');
   return DateTextFormatter.dayMonthShort(date);
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../domain/chat_domain.dart';
 import '../../models/chat.dart';
 import '../../state/chat_state.dart';
@@ -60,8 +61,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ChatListHeader(
-                    title: 'Сообщения',
-                    subtitle: 'Чаты и важные события по поездкам',
+                    title: tr('Сообщения'),
+                    subtitle: tr('Чаты и важные события по поездкам'),
                     trailingIcon: Icons.archive_outlined,
                     onTrailingTap: () => Navigator.of(context).push(
                       HSRoute<void>(
@@ -87,15 +88,16 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                       child: filtered.isEmpty
                           ? ListView(
                               physics: const AlwaysScrollableScrollPhysics(),
-                              children: const [
-                                SizedBox(height: 120),
+                              children: [
+                                const SizedBox(height: 120),
                                 Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 20),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 20),
                                   child: EmptyChatStateContent(
                                     icon: Icons.forum_outlined,
-                                    title: 'Активных чатов пока нет',
-                                    subtitle:
-                                        'Новые диалоги с водителями и пассажирами появятся здесь.',
+                                    title: tr('Активных чатов пока нет'),
+                                    subtitle: tr(
+                                        'Новые диалоги с водителями и пассажирами появятся здесь.'),
                                   ),
                                 ),
                               ],
@@ -110,6 +112,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                               onArchiveToggle: (t) => ref
                                   .read(chatProvider.notifier)
                                   .setArchived(t.id, true),
+                              canModify: (t) => !ref
+                                  .read(chatProvider.notifier)
+                                  .isLockedByActiveTrip(t),
                             ),
                     ),
             ),
@@ -194,7 +199,7 @@ class ChatSearchField extends StatelessWidget {
       controller: controller,
       onChanged: onChanged,
       decoration: InputDecoration(
-        hintText: 'Поиск по чатам',
+        hintText: tr('Поиск по чатам'),
         prefixIcon: const Icon(Icons.search, size: 20),
         filled: true,
         fillColor: hs.cardBackground,

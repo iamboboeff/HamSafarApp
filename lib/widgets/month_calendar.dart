@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 import 'package:intl/intl.dart';
 
 import '../domain/date_formatter.dart';
@@ -54,7 +55,7 @@ class MonthCalendar extends StatelessWidget {
               for (final symbol in _weekdaySymbols)
                 Expanded(
                   child: Text(
-                    symbol,
+                    tr(symbol),
                     textAlign: TextAlign.center,
                     style: HSText.subheadlineSemibold.copyWith(
                       color: context.secondaryText,

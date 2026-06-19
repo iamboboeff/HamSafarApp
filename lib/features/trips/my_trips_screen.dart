@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -45,6 +46,17 @@ class _MyTripsScreenState extends ConsumerState<MyTripsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Jump to a section requested from elsewhere (e.g. after a booking the
+    // checkout sends the rider here to «Запросы»/«Активные»).
+    ref.listen<TripSection?>(requestedTripsSectionProvider, (prev, next) {
+      if (next == null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_pageController.hasClients) _pageController.jumpToPage(next.index);
+        setState(() => _sectionIndex = next.index);
+        ref.read(requestedTripsSectionProvider.notifier).clear();
+      });
+    });
     return BackdropScaffoldBody(
       child: SafeArea(
         bottom: false,
@@ -55,7 +67,7 @@ class _MyTripsScreenState extends ConsumerState<MyTripsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Мои поездки', style: HSText.largeTitle),
+                  Text(tr('Мои поездки'), style: HSText.largeTitle),
                   const SizedBox(height: 12),
                   _SectionTabs(
                     selectedIndex: _sectionIndex,
@@ -220,7 +232,7 @@ class _SectionTabs extends StatelessWidget {
         for (var i = 0; i < TripSection.values.length; i++)
           Expanded(
             child: _TabItem(
-              title: TripSection.values[i].title,
+              title: tr(TripSection.values[i].title),
               isSelected: selectedIndex == i,
               onTap: () => onSelect(i),
             ),
@@ -287,13 +299,13 @@ class _EmptyTripsCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'У вас пока нет предстоящих поездок',
+            tr('У вас пока нет предстоящих поездок'),
             textAlign: TextAlign.center,
             style: HSText.title3.copyWith(fontSize: 22, height: 1.2),
           ),
           const SizedBox(height: 8),
           Text(
-            'Создайте новую поездку или запрос, и они появятся здесь.',
+            tr('Создайте новую поездку или запрос, и они появятся здесь.'),
             textAlign: TextAlign.center,
             style: HSText.body.copyWith(
               fontSize: 16,

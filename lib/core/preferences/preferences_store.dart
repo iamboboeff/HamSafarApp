@@ -71,6 +71,7 @@ class AppPreferencesStore {
     final prefs = await SharedPreferences.getInstance();
     final payload = jsonEncode({
       'notifications': {
+        'pushEnabled': notifications.pushEnabled,
         'messages': notifications.messages,
         'bookingConfirmations': notifications.bookingConfirmations,
         'tripReminders': notifications.tripReminders,
@@ -98,6 +99,7 @@ class AppPreferencesStore {
       final p = (json['privacy'] as Map?)?.cast<String, dynamic>() ?? {};
       return CachedAppPreferences(
         notifications: NotificationSettings(
+          pushEnabled: n['pushEnabled'] as bool? ?? true,
           messages: n['messages'] as bool? ?? true,
           bookingConfirmations: n['bookingConfirmations'] as bool? ?? true,
           tripReminders: n['tripReminders'] as bool? ?? true,

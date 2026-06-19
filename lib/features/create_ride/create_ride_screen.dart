@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../core/supabase/supabase_service.dart';
 import '../../domain/create_ride_flow.dart';
 import '../../domain/create_ride_presentation.dart';
@@ -15,7 +16,9 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/app_backdrop.dart';
 import '../../widgets/buttons.dart';
+import '../../widgets/hs_route.dart';
 import '../../widgets/month_calendar.dart';
+import '../auth/auth_screen.dart';
 import '../home/widgets/date_picker_sheet.dart';
 import '../home/widgets/location_picker_sheet.dart';
 import 'widgets/create_cards.dart';
@@ -146,6 +149,18 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   }
 
   void _selectRole(TravelMode mode) {
+    // Guests may browse the role picker, but committing to "Я водитель" /
+    // "Я пассажир" requires an account — open the auth sheet instead of
+    // entering the wizard (QA #16, BlaBlaCar-style soft gate).
+    if (!ref.read(isAuthenticatedProvider)) {
+      Navigator.of(context).push(
+        HSRoute<void>(
+          builder: (_) => const AuthScreen(),
+          fullscreenDialog: true,
+        ),
+      );
+      return;
+    }
     setState(() {
       if (mode == TravelMode.driver) {
         // Apply the role's seat default only on a fresh start. When resuming a
@@ -177,7 +192,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
   }) async {
     final result = await showLocationPicker(
       context,
-      title: isFrom ? 'Откуда' : 'Куда',
+      title: isFrom ? tr('Откуда') : tr('Куда'),
       availableCountries: ref.read(availableTravelCountriesProvider),
     );
     if (result == null) return;
@@ -223,18 +238,20 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     // Client-side guards (the server also validates cooldown/duplicates/limits).
     // First pass: against the local clock so we can fail fast without a roundtrip.
     if (_mergedDepartureDate.isBefore(DateTime.now())) {
-      _showError('Нельзя создать поездку на прошедшие дату или время.');
+      _showError(tr('Нельзя создать поездку на прошедшие дату или время.'));
       return;
     }
     // Origin and destination must differ (QA #76).
     if (_draft.departureLocation.city.name.trim().toLowerCase() ==
         _draft.destinationLocation.city.name.trim().toLowerCase()) {
-      _showError('Пункты отправления и назначения должны отличаться.');
+      _showError(tr('Пункты отправления и назначения должны отличаться.'));
       return;
     }
     if (mode == TravelMode.driver && _priceValue < 1) {
       _showError(
-        'Сумма должна быть от 1 до ${_currency.formatAmount(_priceMax)}.',
+        trf('Сумма должна быть от 1 до {max}.', {
+          'max': _currency.formatAmount(_priceMax),
+        }),
       );
       return;
     }
@@ -243,7 +260,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     if (mode == TravelMode.driver &&
         !ref.read(carProfileProvider).isComplete) {
       _showError(
-        'Заполните данные автомобиля в профиле, чтобы опубликовать поездку.',
+        tr('Заполните данные автомобиля в профиле, чтобы опубликовать поездку.'),
       );
       return;
     }
@@ -251,7 +268,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     if (mode == TravelMode.driver) {
       final age = ref.read(currentUserProvider).age;
       if (age != null && age < 18) {
-        _showError('Создавать поездки могут только пользователи старше 18 лет.');
+        _showError(
+          tr('Создавать поездки могут только пользователи старше 18 лет.'),
+        );
         return;
       }
     }
@@ -268,7 +287,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       final serverNow = await service.fetchCurrentServerDate();
       if (_mergedDepartureDate.toUtc().isBefore(serverNow)) {
         setState(() => _isPublishing = false);
-        _showError('Нельзя создать поездку на прошедшие дату или время.');
+        _showError(tr('Нельзя создать поездку на прошедшие дату или время.'));
         return;
       }
     } catch (_) {
@@ -333,7 +352,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isPublishing = false);
-        _showError('Не удалось опубликовать. Попробуйте ещё раз.');
+        _showError(tr('Не удалось опубликовать. Попробуйте ещё раз.'));
       }
       return;
     }
@@ -348,16 +367,16 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Поездка опубликована'),
+        title: Text(tr('Поездка опубликована')),
         content: Text(
           mode == TravelMode.driver
-              ? 'Ваша поездка теперь доступна пассажирам.'
-              : 'Ваш запрос опубликован. Водители смогут связаться с вами.',
+              ? tr('Ваша поездка теперь доступна пассажирам.')
+              : tr('Ваш запрос опубликован. Водители смогут связаться с вами.'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Закрыть'),
+            child: Text(tr('Закрыть')),
           ),
         ],
       ),
@@ -396,12 +415,12 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Не удалось опубликовать'),
+        title: Text(tr('Не удалось опубликовать')),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
       ),
@@ -454,8 +473,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           WizardHeader(
-            title: step.title(TravelMode.driver),
-            subtitle: step.subtitle(TravelMode.driver),
+            title: tr(step.title(TravelMode.driver)),
+            subtitle: tr(step.subtitle(TravelMode.driver)),
             progress: step.progress,
             onBack: _back,
           ),
@@ -485,13 +504,13 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           value: _draft.hasSelectedDriverFrom
               ? _draft.departureLocation.city.name
               : null,
-          placeholder: 'Откуда',
+          placeholder: tr('Откуда'),
           onTap: () => _pickLocation(isFrom: true, isDriver: true),
         ),
         const SizedBox(height: 16),
         MeetingPlaceSelectorCard(
-          title: 'Место встречи',
-          subtitle: 'Необязательно',
+          title: tr('Место встречи'),
+          subtitle: tr('Необязательно'),
           places: CreateRidePresentation.meetingOptions(
             _draft.departureLocation.city.name,
             RidePointKind.meeting,
@@ -516,10 +535,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         // "Откуда" is required — block advancing and tell the user why instead
         // of a silently-disabled button (QA #13).
         PrimaryFilledButton(
-          label: 'Продолжить',
+          label: tr('Продолжить'),
           onPressed: () {
             if (!_draft.hasSelectedDriverFrom) {
-              _showHint('Сначала выберите город отправления.');
+              _showHint(tr('Сначала выберите город отправления.'));
               return;
             }
             _advance();
@@ -539,13 +558,13 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           value: _draft.hasSelectedDriverTo
               ? _draft.destinationLocation.city.name
               : null,
-          placeholder: 'Куда',
+          placeholder: tr('Куда'),
           onTap: () => _pickLocation(isFrom: false, isDriver: true),
         ),
         const SizedBox(height: 16),
         MeetingPlaceSelectorCard(
-          title: 'Место прибытия',
-          subtitle: 'Необязательно',
+          title: tr('Место прибытия'),
+          subtitle: tr('Необязательно'),
           places: CreateRidePresentation.meetingOptions(
             _draft.destinationLocation.city.name,
             RidePointKind.destination,
@@ -569,10 +588,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         const SizedBox(height: 16),
         // "Куда" is required — block advancing and tell the user why (QA #13).
         PrimaryFilledButton(
-          label: 'Продолжить',
+          label: tr('Продолжить'),
           onPressed: () {
             if (!_draft.hasSelectedDriverTo) {
-              _showHint('Сначала выберите город назначения.');
+              _showHint(tr('Сначала выберите город назначения.'));
               return;
             }
             _advance();
@@ -601,32 +620,35 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SearchInfoTile(
-          title: 'Дата поездки',
+          title: tr('Дата поездки'),
           value: DateTextFormatter.dayMonthYear(_draft.departureDate),
           icon: Icons.calendar_today,
+          onTap: _pickDate,
         ),
         const SizedBox(height: 18),
         Text(
           mode == TravelMode.driver
-              ? 'Во сколько заберёте пассажиров?'
-              : 'Во сколько хотите выехать?',
+              ? tr('Во сколько заберёте пассажиров?')
+              : tr('Во сколько хотите выехать?'),
           style: HSText.headline,
         ),
         const SizedBox(height: 8),
         Text(
           mode == TravelMode.driver
-              ? 'Пассажиры увидят точное время отправления.'
-              : 'Выберите удобное время, чтобы водителям было проще откликнуться.',
+              ? tr('Пассажиры увидят точное время отправления.')
+              : tr('Выберите удобное время, чтобы водителям было проще откликнуться.'),
           style: HSText.subheadline.copyWith(color: context.secondaryText),
         ),
         const SizedBox(height: 18),
         CreateTimeSelectionCard(
-          title: mode == TravelMode.driver ? 'Время выезда' : 'Удобное время',
+          title: mode == TravelMode.driver
+              ? tr('Время выезда')
+              : tr('Удобное время'),
           time: _draft.departureTime,
           onChanged: (value) => setState(() => _draft.departureTime = value),
         ),
         const SizedBox(height: 16),
-        PrimaryFilledButton(label: 'Продолжить', onPressed: _advance),
+        PrimaryFilledButton(label: tr('Продолжить'), onPressed: _advance),
       ],
     );
   }
@@ -639,8 +661,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       children: [
         Text(
           isDriver
-              ? 'Сколько попутчиков возьмёте в дорогу?'
-              : 'Сколько мест вам нужно?',
+              ? tr('Сколько попутчиков возьмёте в дорогу?')
+              : tr('Сколько мест вам нужно?'),
           style: HSText.headline,
         ),
         const SizedBox(height: 8),
@@ -655,13 +677,13 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         ),
         if (isDriver) ...[
           Text(
-            'Свободных мест: ${_draft.seats}',
+            trf('Свободных мест: {count}', {'count': _draft.seats}),
             style: HSText.subheadline.copyWith(color: context.secondaryText),
           ),
           const SizedBox(height: 16),
           CreateCheckboxOptionCard(
-            title: 'Максимум двое сзади',
-            subtitle: 'Пустое сиденье посередине делает поездку комфортнее.',
+            title: tr('Максимум двое сзади'),
+            subtitle: tr('Пустое сиденье посередине делает поездку комфортнее.'),
             isSelected: _draft.maxTwoPassengersInBack,
             trailingIcon: Icons.people_outline,
             onTap: () => setState(() {
@@ -674,8 +696,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           ),
           const SizedBox(height: 8),
           CreateCheckboxOptionCard(
-            title: 'Мгновенная бронь',
-            subtitle: 'Пассажиры бронируют сразу, без ожидания подтверждения.',
+            title: tr('Мгновенная бронь'),
+            subtitle: tr('Пассажиры бронируют сразу, без ожидания подтверждения.'),
             isSelected: _draft.instantBookingEnabled,
             trailingIcon: Icons.bolt,
             onTap: () => setState(() {
@@ -684,7 +706,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
           ),
         ],
         const SizedBox(height: 16),
-        PrimaryFilledButton(label: 'Продолжить', onPressed: _advance),
+        PrimaryFilledButton(label: tr('Продолжить'), onPressed: _advance),
       ],
     );
   }
@@ -693,15 +715,15 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Укажите цену за одно место', style: HSText.headline),
+        Text(tr('Укажите цену за одно место'), style: HSText.headline),
         const SizedBox(height: 8),
         Text(
-          'Пассажиры увидят стоимость за одного человека.',
+          tr('Пассажиры увидят стоимость за одного человека.'),
           style: HSText.subheadline.copyWith(color: context.secondaryText),
         ),
         const SizedBox(height: 16),
         Text(
-          'Валюта',
+          tr('Валюта'),
           style: HSText.captionSemibold.copyWith(color: context.secondaryText),
         ),
         const SizedBox(height: 8),
@@ -727,10 +749,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         ),
         const SizedBox(height: 18),
         AmountEntryCard(
-          title: 'Цена за 1 пассажира',
+          title: tr('Цена за 1 пассажира'),
           placeholder: _currency == ResidenceCountry.tajikistan
-              ? 'Например, 80'
-              : 'Например, 180000',
+              ? tr('Например, 80')
+              : tr('Например, 180000'),
           currencyCode: _currency.currencyCode,
           controller: _priceController,
           onChanged: (value) {
@@ -749,7 +771,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         const SizedBox(height: 18),
         Row(
           children: [
-            Text('За 1 пассажира', style: HSText.headline),
+            Text(tr('За 1 пассажира'), style: HSText.headline),
             const Spacer(),
             Text(
               _currency.formatAmount(_priceValue),
@@ -759,7 +781,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         ),
         const SizedBox(height: 16),
         PrimaryFilledButton(
-          label: 'Продолжить',
+          label: tr('Продолжить'),
           onPressed: _priceValue > 0 ? _advance : null,
         ),
       ],
@@ -773,8 +795,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       children: [
         Text(
           mode == TravelMode.driver
-              ? 'Комментарий к поездке'
-              : 'Комментарий для водителя',
+              ? tr('Комментарий к поездке')
+              : tr('Комментарий для водителя'),
           style: HSText.headline,
         ),
         const SizedBox(height: 16),
@@ -792,24 +814,24 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                 controller: _notesController,
                 minLines: 4,
                 maxLines: 6,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
-                  hintText: 'Введите текст',
+                  hintText: tr('Введите текст'),
                 ),
               ),
               const SizedBox(height: 10),
               Text(
                 mode == TravelMode.driver
-                    ? 'Добавьте место встречи, багаж и другие детали.'
-                    : 'Напишите, где удобно встретиться и сколько багажа с собой.',
+                    ? tr('Добавьте место встречи, багаж и другие детали.')
+                    : tr('Напишите, где удобно встретиться и сколько багажа с собой.'),
                 style: HSText.footnote.copyWith(color: context.secondaryText),
               ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        PrimaryFilledButton(label: 'Продолжить', onPressed: _advance),
+        PrimaryFilledButton(label: tr('Продолжить'), onPressed: _advance),
       ],
     );
   }
@@ -824,7 +846,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         _draft.customDepartureMeetingText.trim().isNotEmpty) {
       meetingRows.add(
         MeetingPlaceSummaryRow(
-          title: 'Точка встречи',
+          title: tr('Точка встречи'),
           city: _draft.departureLocation.city.name,
           value: _draft.customDepartureMeetingText.trim(),
           accent: context.hs.primary,
@@ -834,7 +856,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       final point = _draft.selectedDepartureMeetingPoint!;
       meetingRows.add(
         MeetingPlaceSummaryRow(
-          title: 'Точка встречи',
+          title: tr('Точка встречи'),
           city: _draft.departureLocation.city.name,
           value: point.addressLine ?? point.title,
           accent: context.hs.primary,
@@ -845,7 +867,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         _draft.customArrivalMeetingText.trim().isNotEmpty) {
       meetingRows.add(
         MeetingPlaceSummaryRow(
-          title: 'Точка прибытия',
+          title: tr('Точка прибытия'),
           city: _draft.destinationLocation.city.name,
           value: _draft.customArrivalMeetingText.trim(),
           accent: context.hs.passenger,
@@ -855,7 +877,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       final point = _draft.selectedArrivalMeetingPoint!;
       meetingRows.add(
         MeetingPlaceSummaryRow(
-          title: 'Точка прибытия',
+          title: tr('Точка прибытия'),
           city: _draft.destinationLocation.city.name,
           value: point.addressLine ?? point.title,
           accent: context.hs.passenger,
@@ -868,7 +890,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
       children: [
         CreateSummaryRouteHero(
           accent: accent,
-          badgeTitle: isDriver ? 'Проверка поездки' : 'Проверка запроса',
+          badgeTitle: isDriver ? tr('Проверка поездки') : tr('Проверка запроса'),
           fromCity: _draft.departureLocation.city.name,
           toCity: _draft.destinationLocation.city.name,
           fromCountry: _draft.departureLocation.country.name,
@@ -883,7 +905,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                 children: [
                   Expanded(
                     child: CreateSummaryMetricCard(
-                      title: 'Дата',
+                      title: tr('Дата'),
                       value: DateTextFormatter.dayMonthYear(_draft.departureDate),
                       icon: Icons.calendar_today,
                       accent: accent,
@@ -892,7 +914,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: CreateSummaryMetricCard(
-                      title: 'Время',
+                      title: tr('Время'),
                       value: DateTextFormatter.time(_draft.departureTime),
                       icon: Icons.schedule,
                       accent: accent,
@@ -908,10 +930,10 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                 children: [
                   Expanded(
                     child: CreateSummaryMetricCard(
-                      title: isDriver ? 'Цена за место' : 'Формат',
+                      title: isDriver ? tr('Цена за место') : tr('Формат'),
                       value: isDriver
                           ? _currency.formatAmount(_priceValue)
-                          : 'Без бюджета',
+                          : tr('Без бюджета'),
                       icon: isDriver
                           ? Icons.payments_outlined
                           : Icons.verified_user,
@@ -921,7 +943,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: CreateSummaryMetricCard(
-                      title: isDriver ? 'Свободные места' : 'Нужно мест',
+                      title: isDriver ? tr('Свободные места') : tr('Нужно мест'),
                       value:
                           '${isDriver ? _draft.availableSeatLabels.length : _draft.seats}',
                       icon: Icons.groups,
@@ -936,8 +958,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         if (isDriver && _draft.maxTwoPassengersInBack) ...[
           const SizedBox(height: 12),
           CreateSummaryMetricCard(
-            title: 'Опция для пассажиров',
-            value: 'Максимум двое сзади',
+            title: tr('Опция для пассажиров'),
+            value: tr('Максимум двое сзади'),
             icon: Icons.check_box_outlined,
             accent: accent,
           ),
@@ -945,8 +967,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
         if (isDriver && _draft.instantBookingEnabled) ...[
           const SizedBox(height: 12),
           CreateSummaryMetricCard(
-            title: 'Бронирование',
-            value: 'Мгновенная бронь',
+            title: tr('Бронирование'),
+            value: tr('Мгновенная бронь'),
             icon: Icons.bolt,
             accent: accent,
           ),
@@ -962,7 +984,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               ),
               const SizedBox(width: 6),
               Text(
-                'Точки встречи',
+                tr('Точки встречи'),
                 style: HSText.subheadlineSemibold.copyWith(
                   color: context.secondaryText,
                 ),
@@ -978,7 +1000,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             Icon(Icons.notes, size: 16, color: context.secondaryText),
             const SizedBox(width: 6),
             Text(
-              'Комментарий',
+              tr('Комментарий'),
               style: HSText.subheadlineSemibold.copyWith(
                 color: context.secondaryText,
               ),
@@ -995,13 +1017,15 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             border: Border.all(color: context.hs.stroke),
           ),
           child: Text(
-            notes.isEmpty ? 'Без дополнительного комментария' : notes,
+            notes.isEmpty ? tr('Без дополнительного комментария') : notes,
             style: HSText.subheadline,
           ),
         ),
         const SizedBox(height: 18),
         PrimaryFilledButton(
-          label: isDriver ? 'Опубликовать поездку' : 'Опубликовать запрос',
+          label: isDriver
+              ? tr('Опубликовать поездку')
+              : tr('Опубликовать запрос'),
           accent: accent,
           isLoading: _isPublishing,
           onPressed: _isPublishing ? null : _publish,
@@ -1040,16 +1064,16 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Создать заявку',
-                      style: TextStyle(
+                    Text(
+                      tr('Создать заявку'),
+                      style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Укажите маршрут, время и комментарий для водителя.',
+                      tr('Укажите маршрут, время и комментарий для водителя.'),
                       style: HSText.subheadline.copyWith(
                         color: context.secondaryText,
                       ),
@@ -1060,9 +1084,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             ],
           ),
           const SizedBox(height: 22),
-          const Text(
-            'Маршрут',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          Text(
+            tr('Маршрут'),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 14),
           WizardFieldRow(
@@ -1071,7 +1095,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             value: _draft.hasSelectedPassengerFrom
                 ? _draft.departureLocation.city.name
                 : null,
-            placeholder: 'Откуда',
+            placeholder: tr('Откуда'),
             onTap: () => _pickLocation(isFrom: true, isDriver: false),
           ),
           const SizedBox(height: 14),
@@ -1081,7 +1105,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             value: _draft.hasSelectedPassengerTo
                 ? _draft.destinationLocation.city.name
                 : null,
-            placeholder: 'Куда',
+            placeholder: tr('Куда'),
             onTap: () => _pickLocation(isFrom: false, isDriver: false),
           ),
           const SizedBox(height: 14),
@@ -1089,7 +1113,7 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             icon: Icons.calendar_today,
             iconColor: hs.primary,
             value: _passengerDateLabel(),
-            placeholder: 'Когда',
+            placeholder: tr('Когда'),
             onTap: _pickDate,
           ),
           const SizedBox(height: 14),
@@ -1097,19 +1121,19 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             icon: Icons.schedule,
             iconColor: hs.primary,
             value: DateTextFormatter.time(_draft.departureTime),
-            placeholder: 'Время',
+            placeholder: tr('Время'),
             onTap: () => showWizardTimePicker(
               context,
-              title: 'Время',
+              title: tr('Время'),
               initial: _draft.departureTime,
               onChanged: (value) =>
                   setState(() => _draft.departureTime = value),
             ),
           ),
           const SizedBox(height: 22),
-          const Text(
-            'Сколько нужно мест',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          Text(
+            tr('Сколько нужно мест'),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 14),
           CreateCounterSelector(
@@ -1119,9 +1143,9 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
             onChanged: (value) => setState(() => _draft.seats = value),
           ),
           const SizedBox(height: 22),
-          const Text(
-            'Комментарий',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          Text(
+            tr('Комментарий'),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 14),
           Container(
@@ -1134,18 +1158,19 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
               controller: _notesController,
               minLines: 5,
               maxLines: 8,
-              decoration: const InputDecoration(
-                contentPadding: EdgeInsets.all(14),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.all(14),
                 border: InputBorder.none,
-                hintText:
-                    'Напишите, нужно ли забрать вас с адреса, будет ли у вас '
-                    'большой багаж или другие важные детали',
+                hintText: tr(
+                  'Напишите, нужно ли забрать вас с адреса, будет ли у вас '
+                  'большой багаж или другие важные детали',
+                ),
               ),
             ),
           ),
           const SizedBox(height: 22),
           PrimaryFilledButton(
-            label: 'Создать заявку',
+            label: tr('Создать заявку'),
             accent: hs.passenger,
             isLoading: _isPublishing,
             // "Откуда" and "Куда" are required before a request can be created.
@@ -1163,8 +1188,8 @@ class _CreateRideScreenState extends ConsumerState<CreateRideScreen> {
 
   String? _passengerDateLabel() {
     final date = _draft.departureDate;
-    if (DateUtilsX.isToday(date)) return 'Сегодня';
-    if (DateUtilsX.isTomorrow(date)) return 'Завтра';
+    if (DateUtilsX.isToday(date)) return tr('Сегодня');
+    if (DateUtilsX.isTomorrow(date)) return tr('Завтра');
     return DateTextFormatter.dayMonthYear(date);
   }
 }

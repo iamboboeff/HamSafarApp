@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../domain/ride_detail_state.dart';
 import '../../../models/ride_passenger_booking.dart';
 import '../../../models/user_profile.dart';
@@ -95,10 +96,15 @@ class RideDetailPriceSeatsSummary extends StatelessWidget {
     super.key,
     required this.priceText,
     required this.seatsLeft,
+    this.priceLabel = 'за место',
   });
 
   final String priceText;
   final int seatsLeft;
+
+  /// Caption under the price. Defaults to per-seat «за место»; the passenger
+  /// layout overrides it with «за N места» when booking several seats.
+  final String priceLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -124,9 +130,9 @@ class RideDetailPriceSeatsSummary extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        column(priceText, 'за место'),
+        column(priceText, tr(priceLabel)),
         const SizedBox(width: 16),
-        column('$seatsLeft', 'свободно мест'),
+        column('$seatsLeft', tr('свободно мест')),
       ],
     );
   }
@@ -196,7 +202,6 @@ class RidePassengerDriverRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
-    final reviewCount = driver.completedTrips < 5 ? 5 : driver.completedTrips;
     final row = Row(
       children: [
         ProfileAvatar(
@@ -212,18 +217,26 @@ class RidePassengerDriverRow extends StatelessWidget {
             children: [
               Text(driver.name, style: HSText.headline),
               const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(Icons.star, size: 13, color: hs.warm),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${driver.ratingText} • $reviewCount отзывов',
-                    style: HSText.subheadline.copyWith(
-                      color: context.secondaryText,
+              if (driver.hasRating)
+                Row(
+                  children: [
+                    Icon(Icons.star, size: 13, color: hs.warm),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${driver.ratingText} • ${driver.reviewsLabel}',
+                      style: HSText.subheadline.copyWith(
+                        color: context.secondaryText,
+                      ),
                     ),
+                  ],
+                )
+              else
+                Text(
+                  tr('Нет отзывов'),
+                  style: HSText.subheadline.copyWith(
+                    color: context.secondaryText,
                   ),
-                ],
-              ),
+                ),
             ],
           ),
         ),
@@ -273,6 +286,7 @@ class DriverRidePassengersSection extends StatelessWidget {
   const DriverRidePassengersSection({
     super.key,
     required this.confirmedPassengers,
+    this.isLoading = false,
     required this.canRemovePassengers,
     required this.onOpenChat,
     required this.onRemovePassenger,
@@ -280,6 +294,10 @@ class DriverRidePassengersSection extends StatelessWidget {
   });
 
   final List<RidePassengerBooking> confirmedPassengers;
+
+  /// While the passenger list is being fetched, show a loader instead of the
+  /// "no requests yet" empty state (which would otherwise flash on entry).
+  final bool isLoading;
   final bool canRemovePassengers;
   final void Function(RidePassengerBooking) onOpenChat;
   final void Function(RidePassengerBooking) onRemovePassenger;
@@ -288,10 +306,21 @@ class DriverRidePassengersSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RideDetailPlainSection(
-      title: 'Пассажиры по поездке',
-      child: confirmedPassengers.isEmpty
+      title: tr('Пассажиры по поездке'),
+      child: isLoading && confirmedPassengers.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          : confirmedPassengers.isEmpty
           ? Text(
-              'Пока нет активных заявок по этой поездке.',
+              tr('Пока нет активных заявок по этой поездке.'),
               style: HSText.subheadline.copyWith(color: context.secondaryText),
             )
           : Column(
@@ -352,7 +381,8 @@ class _PassengerRow extends StatelessWidget {
                   Text(booking.passenger.name, style: HSText.headline),
                   const SizedBox(height: 4),
                   Text(
-                    '${booking.status} • ${booking.seatsCount} мест(а)',
+                    '${booking.status} • '
+                    '${trf('{count} мест(а)', {'count': booking.seatsCount})}',
                     style: HSText.subheadline.copyWith(
                       color: context.secondaryText,
                     ),
@@ -378,7 +408,7 @@ class _PassengerRow extends StatelessWidget {
             Expanded(
               child: OutlinedButton(
                 onPressed: () => onOpenChat(booking),
-                child: const Text('Написать'),
+                child: Text(tr('Написать')),
               ),
             ),
             if (canRemove) ...[
@@ -387,7 +417,7 @@ class _PassengerRow extends StatelessWidget {
                 child: OutlinedButton(
                   onPressed: () => onRemove(booking),
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                  child: const Text('Отменить бронь'),
+                  child: Text(tr('Отменить бронь')),
                 ),
               ),
             ],

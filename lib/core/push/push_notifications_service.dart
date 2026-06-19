@@ -5,6 +5,7 @@ import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 /// Cross-platform bridge to the device-token side of push.
 ///
@@ -54,6 +55,11 @@ class PushNotificationsService {
   static final PushNotificationsService instance =
       PushNotificationsService._();
 
+  /// Master gate mirroring NotificationSettings.pushEnabled (QA #34). When
+  /// false the service suppresses foreground tray notifications and refuses to
+  /// prompt / register for a device token. Set from SessionNotifier.
+  static bool pushEnabled = true;
+
   /// Method channel shared with `AppDelegate.swift` (iOS only).
   static const MethodChannel _channel = MethodChannel('hamsafar/push');
 
@@ -72,10 +78,10 @@ class PushNotificationsService {
   /// in the system tray (QA #86). Null until [_initAndroidLocalNotifications].
   FlutterLocalNotificationsPlugin? _localNotifications;
 
-  static const _androidChannel = AndroidNotificationChannel(
+  static final _androidChannel = AndroidNotificationChannel(
     'hamsafar_messages',
-    'Уведомления',
-    description: 'Сообщения и события по поездкам',
+    tr('Уведомления'),
+    description: tr('Сообщения и события по поездкам'),
     importance: Importance.high,
   );
 
@@ -138,7 +144,7 @@ class PushNotificationsService {
     final notification = message.notification;
     // Only data-with-notification messages are surfaced; pure-data pushes that
     // just trigger a refresh stay silent.
-    if (plugin == null || notification == null) return;
+    if (!pushEnabled || plugin == null || notification == null) return;
     plugin.show(
       notification.hashCode,
       notification.title,
@@ -165,6 +171,7 @@ class PushNotificationsService {
   ///   `FirebaseMessaging.requestPermission`. On older Android the call
   ///   returns `authorized` without showing any UI.
   Future<bool> requestPermissionAndRegister() async {
+    if (!pushEnabled) return false;
     if (Platform.isIOS) {
       try {
         final granted =
@@ -201,6 +208,7 @@ class PushNotificationsService {
   /// so returning users keep getting tokens, while the system prompt stays
   /// reserved for the first contextually-relevant action.
   Future<bool> registerIfAlreadyGranted() async {
+    if (!pushEnabled) return false;
     if (Platform.isIOS) {
       try {
         final granted =

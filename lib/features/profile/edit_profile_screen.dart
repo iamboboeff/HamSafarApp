@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/user_profile.dart';
 import '../../state/app_state.dart';
@@ -10,6 +11,18 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/buttons.dart';
 import 'widgets/profile_widgets.dart';
+
+/// The phone country codes the app supports — Tajikistan and Uzbekistan only.
+enum _PhoneCountry {
+  tajikistan('🇹🇯', '+992', 'Таджикистан'),
+  uzbekistan('🇺🇿', '+998', 'Узбекистан');
+
+  const _PhoneCountry(this.flag, this.dialCode, this.title);
+
+  final String flag;
+  final String dialCode;
+  final String title;
+}
 
 /// Ported from `EditProfileView` in `ProfileViews.swift`.
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -28,13 +41,27 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   Uint8List? _avatarBytes;
   bool _avatarChanged = false;
   bool _isSaving = false;
+  late _PhoneCountry _phoneCountry;
 
   @override
   void initState() {
     super.initState();
     final profile = ref.read(currentUserProvider);
     _name = TextEditingController(text: profile.name);
-    _phone = TextEditingController(text: profile.phoneNumber);
+    // Split a stored "+992 93…" into its country code + local part so the
+    // picker reflects the saved country and the field shows only the number.
+    final stored = profile.phoneNumber.trim();
+    var country = _PhoneCountry.tajikistan;
+    var local = stored;
+    for (final c in _PhoneCountry.values) {
+      if (stored.startsWith(c.dialCode)) {
+        country = c;
+        local = stored.substring(c.dialCode.length).trim();
+        break;
+      }
+    }
+    _phoneCountry = country;
+    _phone = TextEditingController(text: local);
     _email = TextEditingController(text: profile.email);
     _birthDate = profile.birthDate;
     _gender = profile.gender ?? ProfileGender.male;
@@ -56,7 +83,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось открыть галерею.')),
+        SnackBar(content: Text(tr('Не удалось открыть галерею.'))),
       );
       return;
     }
@@ -109,14 +136,54 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Проверьте данные'),
+        title: Text(tr('Проверьте данные')),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showCountryPicker() {
+    final hs = context.hs;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: hs.cardBackground,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text(tr('Выберите страну'), style: HSText.headline),
+            ),
+            for (final c in _PhoneCountry.values)
+              ListTile(
+                leading: Text(c.flag, style: const TextStyle(fontSize: 24)),
+                title: Text(tr(c.title), style: HSText.subheadlineSemibold),
+                trailing: Text(
+                  c.dialCode,
+                  style: HSText.subheadline.copyWith(
+                    color: context.secondaryText,
+                  ),
+                ),
+                onTap: () {
+                  setState(() => _phoneCountry = c);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
@@ -124,33 +191,37 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   Future<void> _save() async {
     final name = _name.text.trim();
     if (name.isEmpty) {
-      await _showValidationDialog('Введите имя.');
+      await _showValidationDialog(tr('Введите имя.'));
       return;
     }
     if (name.length > 50) {
-      await _showValidationDialog('Имя не должно превышать 50 символов.');
+      await _showValidationDialog(tr('Имя не должно превышать 50 символов.'));
       return;
     }
     final birth = _birthDate;
     if (birth != null && _ageInYears(birth) < 18) {
-      await _showValidationDialog('Возраст должен быть не меньше 18 лет.');
+      await _showValidationDialog(tr('Возраст должен быть не меньше 18 лет.'));
       return;
     }
     final email = _email.text.trim();
     if (email.isNotEmpty && !_isValidEmail(email)) {
-      await _showValidationDialog('Введите корректный электронный адрес.');
+      await _showValidationDialog(tr('Введите корректный электронный адрес.'));
       return;
     }
 
     setState(() => _isSaving = true);
     final profile = ref.read(currentUserProvider);
-    String title = 'Профиль обновлён';
-    String message = 'Изменения сохранены.';
+    // Persist the number with its country code, e.g. "+992 934249394".
+    final localPhone = _phone.text.trim();
+    final fullPhone =
+        localPhone.isEmpty ? '' : '${_phoneCountry.dialCode} $localPhone';
+    String title = tr('Профиль обновлён');
+    String message = tr('Изменения сохранены.');
     try {
       await ref.read(sessionProvider.notifier).updateProfile(
             profile.copyWith(
               name: name,
-              phoneNumber: _phone.text.trim(),
+              phoneNumber: fullPhone,
               email: email,
               birthDate: _birthDate,
               gender: _gender,
@@ -158,7 +229,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             ),
           );
     } catch (e) {
-      title = 'Не удалось сохранить';
+      title = tr('Не удалось сохранить');
       message = e.toString();
     }
     if (!mounted) return;
@@ -171,7 +242,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
       ),
@@ -183,7 +254,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final hs = context.hs;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Редактировать профиль')),
+      appBar: AppBar(title: Text(tr('Редактировать профиль'))),
       // Tap outside any field to dismiss the keyboard (the phone keyboard has
       // no "done" affordance and otherwise stays up over the Save button).
       body: GestureDetector(
@@ -233,7 +304,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                             children: [
                               const Icon(Icons.camera_alt_outlined, size: 18),
                               const SizedBox(width: 8),
-                              Text('Изменить', style: HSText.headline),
+                              Text(tr('Изменить'), style: HSText.headline),
                             ],
                           ),
                         ),
@@ -243,31 +314,70 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 ),
                 const SizedBox(height: 40),
                 SimpleProfileInput(
-                  title: 'Имя',
+                  title: tr('Имя'),
                   child: TextField(
                     controller: _name,
                     inputFormatters: [LengthLimitingTextInputFormatter(50)],
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Введите имя',
+                    decoration: InputDecoration.collapsed(
+                      hintText: tr('Введите имя'),
                     ),
                     style: HSText.body.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(height: 16),
                 SimpleProfileInput(
-                  title: 'Телефон',
-                  child: TextField(
-                    controller: _phone,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Введите номер телефона',
-                    ),
-                    style: HSText.body.copyWith(fontWeight: FontWeight.w600),
+                  title: tr('Телефон'),
+                  child: Row(
+                    children: [
+                      // Country code picker (Tajikistan / Uzbekistan only).
+                      GestureDetector(
+                        onTap: _showCountryPicker,
+                        behavior: HitTestBehavior.opaque,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${_phoneCountry.flag} ${_phoneCountry.dialCode}',
+                              style: HSText.body.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Icon(
+                              Icons.arrow_drop_down,
+                              size: 20,
+                              color: context.secondaryText,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(width: 1, height: 22, color: hs.stroke),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _phone,
+                          keyboardType: TextInputType.phone,
+                          // Local part only — digits + separators (the country
+                          // code is chosen via the picker, so no "+" here).
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[0-9()\-\s]'),
+                            ),
+                            LengthLimitingTextInputFormatter(15),
+                          ],
+                          decoration: InputDecoration.collapsed(
+                            hintText: tr('Номер телефона'),
+                          ),
+                          style:
+                              HSText.body.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
                 SimpleProfileInput(
-                  title: 'Дата рождения',
+                  title: tr('Дата рождения'),
                   child: GestureDetector(
                     onTap: _pickBirthDate,
                     behavior: HitTestBehavior.opaque,
@@ -275,7 +385,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       children: [
                         Text(
                           _birthDate == null
-                              ? 'Выберите дату'
+                              ? tr('Выберите дату')
                               : DateTextFormatter.dayMonthYear(_birthDate!),
                           style: HSText.body.copyWith(
                             fontWeight: FontWeight.w600,
@@ -292,12 +402,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 ),
                 const SizedBox(height: 16),
                 SimpleProfileInput(
-                  title: 'Электронный адрес',
+                  title: tr('Электронный адрес'),
                   child: TextField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Введите электронный адрес',
+                    decoration: InputDecoration.collapsed(
+                      hintText: tr('Введите электронный адрес'),
                     ),
                     style: HSText.body.copyWith(fontWeight: FontWeight.w600),
                   ),
@@ -306,13 +416,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Пол', style: HSText.subheadlineSemibold),
+                    Text(tr('Пол'), style: HSText.subheadlineSemibold),
                     const SizedBox(height: 8),
                     PopupMenuButton<ProfileGender>(
                       onSelected: (g) => setState(() => _gender = g),
                       itemBuilder: (_) => [
                         for (final g in ProfileGender.values)
-                          PopupMenuItem(value: g, child: Text(g.title)),
+                          PopupMenuItem(value: g, child: Text(tr(g.title))),
                       ],
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -326,7 +436,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         child: Row(
                           children: [
                             Text(
-                              _gender.title,
+                              tr(_gender.title),
                               style: HSText.body.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
@@ -367,7 +477,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     MediaQuery.of(context).padding.bottom,
               ),
               child: PrimaryFilledButton(
-                label: 'Сохранить',
+                label: tr('Сохранить'),
                 isLoading: _isSaving,
                 onPressed: _isSaving ? null : _save,
               ),

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../core/preferences/preferences_store.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/chat.dart';
@@ -229,18 +230,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Доступ к фото'),
-          content: const Text(
-            'Разрешите доступ к фотографиям, чтобы прикреплять их в чат.',
+          title: Text(tr('Доступ к фото')),
+          content: Text(
+            tr('Разрешите доступ к фотографиям, чтобы прикреплять их в чат.'),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Отмена'),
+              child: Text(tr('Отмена')),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Разрешить'),
+              child: Text(tr('Разрешить')),
             ),
           ],
         ),
@@ -256,7 +257,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось открыть галерею.')),
+        SnackBar(content: Text(tr('Не удалось открыть галерею.'))),
       );
       return;
     }
@@ -304,13 +305,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
         await notifier.unblock(id);
         if (!mounted) return;
         messenger.showSnackBar(
-          const SnackBar(content: Text('Пользователь разблокирован.')),
+          SnackBar(content: Text(tr('Пользователь разблокирован.'))),
         );
       } catch (_) {
         if (!mounted) return;
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Не удалось разблокировать. Попробуйте ещё раз.'),
+          SnackBar(
+            content:
+                Text(tr('Не удалось разблокировать. Попробуйте ещё раз.')),
           ),
         );
       }
@@ -320,20 +322,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Заблокировать пользователя?'),
+        title: Text(tr('Заблокировать пользователя?')),
         content: Text(
-          'Вы больше не увидите сообщения, поездки и запросы от ${thread.name}, '
-          'а этот пользователь — ваши. Чат скроется из списка. Разблокировать '
-          'можно в настройках приватности.',
+          trf(
+            'Вы больше не увидите сообщения, поездки и запросы от {name}, '
+            'а этот пользователь — ваши. Чат скроется из списка. Разблокировать '
+            'можно в настройках приватности.',
+            {'name': thread.name},
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
+            child: Text(tr('Отмена')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Заблокировать'),
+            child: Text(tr('Заблокировать')),
           ),
         ],
       ),
@@ -343,14 +348,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       await notifier.block(id);
       if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(content: Text('Пользователь заблокирован.')),
+        SnackBar(content: Text(tr('Пользователь заблокирован.'))),
       );
       navigator.pop();
     } catch (_) {
       if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Не удалось заблокировать. Попробуйте ещё раз.'),
+        SnackBar(
+          content: Text(tr('Не удалось заблокировать. Попробуйте ещё раз.')),
         ),
       );
     }
@@ -390,7 +395,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     if (!mounted) return;
     if (submitted == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Спасибо за отзыв!')),
+        SnackBar(content: Text(tr('Спасибо за отзыв!'))),
       );
     }
   }
@@ -428,7 +433,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
           padding: const EdgeInsets.all(20),
           child: GlassCard(
             child: Text(
-              'Этот чат больше недоступен.',
+              tr('Этот чат больше недоступен.'),
               style: HSText.subheadline.copyWith(color: context.secondaryText),
             ),
           ),
@@ -491,12 +496,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                       ),
                       if (thread.isTyping)
                         Text(
-                          'печатает...',
+                          tr('печатает...'),
                           style: HSText.caption.copyWith(color: hs.primary),
                         )
                       else if (thread.isOnline)
                         Text(
-                          'в сети',
+                          tr('в сети'),
                           style: HSText.caption
                               .copyWith(color: context.secondaryText),
                         ),
@@ -512,13 +517,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
             icon: Icon(Icons.phone, size: 18, color: hs.primary),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Звонок скоро появится')),
+                SnackBar(content: Text(tr('Звонок скоро появится'))),
               );
             },
           ),
           if (thread.participantBackendId != null)
             PopupMenuButton<String>(
-              tooltip: 'Ещё',
+              tooltip: tr('Ещё'),
               onSelected: (value) {
                 if (value == 'profile') {
                   _openPartnerProfile(thread);
@@ -527,11 +532,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                 }
               },
               itemBuilder: (_) => [
-                const PopupMenuItem(value: 'profile', child: Text('Профиль')),
+                PopupMenuItem(value: 'profile', child: Text(tr('Профиль'))),
                 PopupMenuItem(
                   value: 'block',
                   child: Text(
-                    partnerBlocked ? 'Разблокировать' : 'Заблокировать',
+                    partnerBlocked
+                        ? tr('Разблокировать')
+                        : tr('Заблокировать'),
                   ),
                 ),
               ],
@@ -540,40 +547,67 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       ),
       body: Column(
         children: [
-          Expanded(
-            child: _loadingThread && thread.messages.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : ListView(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-                    children: [
-                      for (final group in groups) ...[
-                        MessageDateDivider(title: group.title),
-                        for (final message in group.messages) ...[
-                          if (_firstUnreadId != null &&
-                              message.id == _firstUnreadId)
-                            _NewMessagesDivider(key: _unreadDividerKey),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _MessageRow(message: message),
-                          ),
-                        ],
-                      ],
-                    ],
-                  ),
-          ),
+          // Pinned booking request — stays under the app bar, always visible
+          // regardless of scroll (Telegram "pinned message" style).
           if (chatState.pendingBooking != null)
             PendingBookingBanner(
               context: chatState.pendingBooking!,
               onConfirm: () => ref
                   .read(chatProvider.notifier)
                   .updatePendingBooking(
-                      threadId: widget.threadId, status: 'confirmed'),
+                    threadId: widget.threadId,
+                    status: 'confirmed',
+                  ),
               onDecline: () => ref
                   .read(chatProvider.notifier)
                   .updatePendingBooking(
-                      threadId: widget.threadId, status: 'cancelled'),
+                    threadId: widget.threadId,
+                    status: 'cancelled',
+                  ),
             ),
+          Expanded(
+            child: _loadingThread && thread.messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                      child: ConstrainedBox(
+                        // Bottom-anchor: when the conversation is shorter than the
+                        // viewport, the column fills the height and aligns its
+                        // content to the bottom, so the latest message sits just
+                        // above the composer instead of leaving an empty void.
+                        // (minus the 16+12 vertical padding so it doesn't force a
+                        // spurious scroll.) bottom still == maxScrollExtent, so the
+                        // auto-scroll / load-older logic is unchanged.
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight - 28,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final group in groups) ...[
+                              MessageDateDivider(title: group.title),
+                              for (final message in group.messages) ...[
+                                if (_firstUnreadId != null &&
+                                    message.id == _firstUnreadId)
+                                  _NewMessagesDivider(key: _unreadDividerKey),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: _MessageRow(
+                                    message: message,
+                                    threadId: widget.threadId,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
           if (chatState.reviewPrompt != null)
             ReviewPromptBanner(
               prompt: chatState.reviewPrompt!,
@@ -595,9 +629,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
 /// Ported from `ChatMessageRow` in `ChatDetailSections.swift` — aligns the
 /// bubble depending on whether the message is system / incoming / outgoing.
 class _MessageRow extends ConsumerWidget {
-  const _MessageRow({required this.message});
+  const _MessageRow({required this.message, required this.threadId});
 
   final ChatMessage message;
+  final String threadId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -619,6 +654,12 @@ class _MessageRow extends ConsumerWidget {
               onOpenAttachment: attachment == null
                   ? null
                   : () => _openAttachment(context, ref, attachment),
+              onRetry:
+                  message.deliveryStatus == ChatMessageDeliveryStatus.failed
+                  ? () => ref
+                        .read(chatProvider.notifier)
+                        .retryMessage(threadId, message.id)
+                  : null,
             ),
           ),
         ),
@@ -639,7 +680,7 @@ class _MessageRow extends ConsumerWidget {
     final url = await ref.read(chatProvider.notifier).attachmentUrl(attachment);
     if (url == null) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось открыть вложение.')),
+        SnackBar(content: Text(tr('Не удалось открыть вложение.'))),
       );
       return;
     }
@@ -658,7 +699,7 @@ class _MessageRow extends ConsumerWidget {
     );
     if (!ok) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось открыть вложение.')),
+        SnackBar(content: Text(tr('Не удалось открыть вложение.'))),
       );
     }
   }
@@ -692,10 +733,10 @@ class _AttachmentImageViewer extends StatelessWidget {
                 : const Center(
                     child: CircularProgressIndicator(color: Colors.white),
                   ),
-            errorBuilder: (context, error, stack) => const Center(
+            errorBuilder: (context, error, stack) => Center(
               child: Text(
-                'Не удалось загрузить изображение.',
-                style: TextStyle(color: Colors.white70),
+                tr('Не удалось загрузить изображение.'),
+                style: const TextStyle(color: Colors.white70),
               ),
             ),
           ),
@@ -722,7 +763,7 @@ class _NewMessagesDivider extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Text(
-              'Новые сообщения',
+              tr('Новые сообщения'),
               style: HSText.caption2Bold.copyWith(color: hs.primary),
             ),
           ),
@@ -773,12 +814,14 @@ class ReviewPromptBanner extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Как прошла поездка с ${prompt.targetName}?',
+                    trf('Как прошла поездка с {name}?',
+                        {'name': prompt.targetName}),
                     style: HSText.subheadlineSemibold,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Оставьте отзыв за ${prompt.routeText}.',
+                    trf('Оставьте отзыв за {route}.',
+                        {'route': prompt.routeText}),
                     style: HSText.caption
                         .copyWith(color: context.secondaryText),
                   ),
@@ -789,7 +832,7 @@ class ReviewPromptBanner extends StatelessWidget {
           IconButton(
             iconSize: 18,
             visualDensity: VisualDensity.compact,
-            tooltip: 'Скрыть',
+            tooltip: tr('Скрыть'),
             onPressed: onDismiss,
             icon: Icon(Icons.close, color: context.secondaryText),
           ),
@@ -864,10 +907,11 @@ class _LeaveRideReviewSheetState extends ConsumerState<LeaveRideReviewSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            Text('Отзыв о поездке', style: HSText.headline),
+            Text(tr('Отзыв о поездке'), style: HSText.headline),
             const SizedBox(height: 4),
             Text(
-              'Поделитесь впечатлением о поездке с ${widget.prompt.targetName}.',
+              trf('Поделитесь впечатлением о поездке с {name}.',
+                  {'name': widget.prompt.targetName}),
               style: HSText.subheadline.copyWith(color: context.secondaryText),
             ),
             const SizedBox(height: 16),
@@ -898,7 +942,7 @@ class _LeaveRideReviewSheetState extends ConsumerState<LeaveRideReviewSheet> {
               ],
             ),
             const SizedBox(height: 16),
-            Text('Комментарий (необязательно)',
+            Text(tr('Комментарий (необязательно)'),
                 style: HSText.subheadlineSemibold),
             const SizedBox(height: 8),
             TextField(
@@ -909,7 +953,7 @@ class _LeaveRideReviewSheetState extends ConsumerState<LeaveRideReviewSheet> {
               decoration: InputDecoration(
                 filled: true,
                 fillColor: hs.secondarySurface,
-                hintText: 'Расскажите, как прошла поездка…',
+                hintText: tr('Расскажите, как прошла поездка…'),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(18),
                   borderSide: BorderSide(color: hs.stroke),
@@ -925,7 +969,9 @@ class _LeaveRideReviewSheetState extends ConsumerState<LeaveRideReviewSheet> {
               width: double.infinity,
               child: FilledButton(
                 onPressed: _isSubmitting ? null : _submit,
-                child: Text(_isSubmitting ? 'Отправка…' : 'Опубликовать отзыв'),
+                child: Text(_isSubmitting
+                    ? tr('Отправка…')
+                    : tr('Опубликовать отзыв')),
               ),
             ),
           ],
@@ -955,47 +1001,102 @@ class PendingBookingBanner extends StatelessWidget {
     final hs = context.hs;
     final ctx = this.context;
     final seatsText = ctx.seatsCount == 1
-        ? '1 место'
+        ? tr('1 место')
         : ctx.seatsCount < 5
-            ? '${ctx.seatsCount} места'
-            : '${ctx.seatsCount} мест';
+            ? trf('{count} места', {'count': ctx.seatsCount})
+            : trf('{count} мест', {'count': ctx.seatsCount});
     final departureText = DateTextFormatter.dayMonthTime(ctx.departureAt);
 
+    // Pinned under the app bar (Telegram "pinned message" style): always
+    // visible, independent of scroll, with a bottom hairline + downward shadow
+    // and a primary accent stripe on the left.
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
       decoration: BoxDecoration(
         color: hs.cardBackground,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: hs.stroke),
+        border: Border(
+          left: BorderSide(color: hs.primary, width: 3),
+          bottom: BorderSide(color: hs.stroke),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Заявка на поездку',
-              style: HSText.subheadlineSemibold.copyWith(color: hs.primary)),
-          const SizedBox(height: 4),
-          Text(ctx.route, style: HSText.subheadline),
-          const SizedBox(height: 2),
-          Text(
-            '$departureText · $seatsText',
-            style: HSText.caption.copyWith(color: context.secondaryText),
-          ),
-          const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onDecline,
-                  child: const Text('Отклонить'),
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: hs.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(
+                  Icons.event_seat_outlined,
+                  size: 16,
+                  color: hs.primary,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr('Заявка на поездку'),
+                      style: HSText.captionSemibold.copyWith(color: hs.primary),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      ctx.route,
+                      style: HSText.subheadlineSemibold,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '$departureText · $seatsText',
+                      style: HSText.caption.copyWith(
+                        color: context.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: OutlinedButton(
+                  onPressed: onDecline,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                  child: Text(tr('Отклонить')),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 3,
                 child: FilledButton(
                   onPressed: onConfirm,
-                  child: const Text('Подтвердить'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                  child: Text(tr('Подтвердить')),
                 ),
               ),
             ],

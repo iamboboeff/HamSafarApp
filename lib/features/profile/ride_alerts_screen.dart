@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../models/ride_alert.dart';
 import '../../state/app_state.dart';
@@ -21,7 +22,7 @@ class RideAlertsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Оповещения о поездках')),
+      appBar: AppBar(title: Text(tr('Оповещения о поездках'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -38,12 +39,13 @@ class RideAlertsScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Оповещения о поездках', style: HSText.headline),
+                        Text(tr('Оповещения о поездках'),
+                            style: HSText.headline),
                         const SizedBox(height: 10),
                         Text(
-                          'Подпишитесь на маршрут на странице поиска, и мы '
-                          'пришлём уведомление каждый раз, когда по нему '
-                          'опубликуют новую поездку.',
+                          tr('Подпишитесь на маршрут на странице поиска, и мы '
+                              'пришлём уведомление каждый раз, когда по нему '
+                              'опубликуют новую поездку.'),
                           style: HSText.subheadline.copyWith(
                             color: context.secondaryText,
                           ),
@@ -115,7 +117,7 @@ class _AlertRow extends ConsumerWidget {
           ),
           IconButton(
             icon: Icon(Icons.delete_outline, color: hs.danger),
-            tooltip: 'Удалить',
+            tooltip: tr('Удалить'),
             onPressed: () => _remove(context, ref),
           ),
         ],
@@ -130,13 +132,14 @@ class _AlertRow extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            'Оповещение «${alert.fromCity} → ${alert.toCity}» отключено',
+            trf('Оповещение «{route}» отключено',
+                {'route': '${alert.fromCity} → ${alert.toCity}'}),
           ),
         ),
       );
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось отключить оповещение')),
+        SnackBar(content: Text(tr('Не удалось отключить оповещение'))),
       );
     }
   }
@@ -157,12 +160,12 @@ class _EmptyState extends StatelessWidget {
             color: context.secondaryText.withValues(alpha: 0.6),
           ),
           const SizedBox(height: 12),
-          Text('Пока нет оповещений', style: HSText.headline),
+          Text(tr('Пока нет оповещений'), style: HSText.headline),
           const SizedBox(height: 8),
           Text(
-            'Найдите маршрут на странице поиска и нажмите '
-            '«Создать оповещение», чтобы получать уведомления о новых '
-            'поездках по нему.',
+            tr('Найдите маршрут на странице поиска и нажмите '
+                '«Создать оповещение», чтобы получать уведомления о новых '
+                'поездках по нему.'),
             textAlign: TextAlign.center,
             style: HSText.subheadline.copyWith(color: context.secondaryText),
           ),

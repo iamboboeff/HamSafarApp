@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../domain/date_formatter.dart';
 import '../models/passenger_request.dart';
@@ -16,8 +17,8 @@ class PassengerRequestCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   String get _departureDayLabel {
-    if (DateUtilsX.isToday(request.departureDate)) return 'Сегодня';
-    if (DateUtilsX.isTomorrow(request.departureDate)) return 'Завтра';
+    if (DateUtilsX.isToday(request.departureDate)) return tr('Сегодня');
+    if (DateUtilsX.isTomorrow(request.departureDate)) return tr('Завтра');
     return DateTextFormatter.dayMonthShort(request.departureDate);
   }
 
@@ -34,7 +35,7 @@ class PassengerRequestCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
                   DateTextFormatter.time(request.departureDate),
@@ -52,7 +53,7 @@ class PassengerRequestCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  'Нужно $seats ${seats == 1 ? 'место' : 'места'}',
+                  trf('Нужно {n} место', {'n': seats}),
                   style:
                       HSText.captionSemibold.copyWith(color: context.secondaryText),
                 ),
@@ -100,7 +101,10 @@ class PassengerRequestCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                RatingPill(rating: request.passenger.ratingText),
+                RatingPill(
+                  rating: request.passenger.ratingText,
+                  hasRating: request.passenger.hasRating,
+                ),
               ],
             ),
           ],

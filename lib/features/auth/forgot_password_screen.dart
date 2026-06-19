@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../core/net_status.dart';
 import '../../core/supabase/supabase_service.dart';
@@ -69,7 +70,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   Future<void> _sendCode({required bool isResend}) async {
     final email = _email.text.trim().toLowerCase();
     if (email.isEmpty) {
-      setState(() => _errorMessage = 'Укажите email.');
+      setState(() => _errorMessage = tr('Укажите email.'));
       return;
     }
     setState(() {
@@ -81,8 +82,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       await ref.read(supabaseServiceProvider).sendPasswordRecovery(email);
       setState(() {
         _codeSent = true;
-        _statusMessage =
-            isResend ? 'Новый код отправлен.' : 'Код отправлен на $email.';
+        _statusMessage = isResend
+            ? tr('Новый код отправлен.')
+            : trf('Код отправлен на {email}.', {'email': email});
       });
       _startResendCountdown();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -93,7 +95,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     } catch (e) {
       setState(() => _errorMessage = isOfflineError(e)
           ? offlineMessage
-          : 'Не удалось отправить код. Попробуйте ещё раз.');
+          : tr('Не удалось отправить код. Попробуйте ещё раз.'));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -105,20 +107,21 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       _statusMessage = null;
     });
     if (_otp.text.trim().isEmpty) {
-      setState(() => _errorMessage = 'Введите код из письма.');
+      setState(() => _errorMessage = tr('Введите код из письма.'));
       return;
     }
     if (_password.text.length < 6) {
-      setState(() => _errorMessage = 'Пароль должен быть минимум 6 символов.');
+      setState(
+          () => _errorMessage = tr('Пароль должен быть минимум 6 символов.'));
       return;
     }
     if (_password.text != _password.text.trim()) {
       setState(() => _errorMessage =
-          'Пароль не должен начинаться или заканчиваться пробелом.');
+          tr('Пароль не должен начинаться или заканчиваться пробелом.'));
       return;
     }
     if (_password.text != _confirmPassword.text) {
-      setState(() => _errorMessage = 'Пароли не совпадают.');
+      setState(() => _errorMessage = tr('Пароли не совпадают.'));
       return;
     }
 
@@ -133,8 +136,8 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       await service.signOut();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Пароль обновлён. Войдите с новым паролем.'),
+        SnackBar(
+          content: Text(tr('Пароль обновлён. Войдите с новым паролем.')),
         ),
       );
       Navigator.of(context).pop(email);
@@ -143,7 +146,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     } catch (e) {
       setState(() => _errorMessage = isOfflineError(e)
           ? offlineMessage
-          : 'Не удалось обновить пароль. Попробуйте ещё раз.');
+          : tr('Не удалось обновить пароль. Попробуйте ещё раз.'));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -160,18 +163,12 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
-        title: const Text('Восстановление пароля'),
+        title: Text(tr('Восстановление пароля')),
       ),
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [hs.cardBackground, hs.tint, hs.background],
-          ),
-        ),
+        color: hs.background,
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
@@ -183,8 +180,8 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                   children: [
                     Text(
                       _codeSent
-                          ? 'Введите код из письма и придумайте новый пароль.'
-                          : 'Укажите email — мы отправим код для сброса пароля.',
+                          ? tr('Введите код из письма и придумайте новый пароль.')
+                          : tr('Укажите email — мы отправим код для сброса пароля.'),
                       style: HSText.subheadline.copyWith(
                         color: context.secondaryText,
                       ),
@@ -199,7 +196,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                     if (_codeSent) ...[
                       const SizedBox(height: 14),
                       AuthField(
-                        title: 'Код из письма',
+                        title: tr('Код из письма'),
                         controller: _otp,
                         focusNode: _otpFocus,
                         icon: Icons.tag,
@@ -207,14 +204,14 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                       ),
                       const SizedBox(height: 14),
                       AuthField(
-                        title: 'Новый пароль',
+                        title: tr('Новый пароль'),
                         controller: _password,
                         icon: Icons.lock_outline,
                         isSecure: true,
                       ),
                       const SizedBox(height: 14),
                       AuthField(
-                        title: 'Повторите пароль',
+                        title: tr('Повторите пароль'),
                         controller: _confirmPassword,
                         icon: Icons.lock_reset,
                         isSecure: true,
@@ -240,7 +237,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                     ],
                     const SizedBox(height: 18),
                     PrimaryFilledButton(
-                      label: _codeSent ? 'Сохранить пароль' : 'Отправить код',
+                      label: _codeSent
+                          ? tr('Сохранить пароль')
+                          : tr('Отправить код'),
                       isLoading: _isLoading,
                       onPressed: _isLoading
                           ? null
@@ -257,8 +256,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                               : null,
                           child: Text(
                             _resendCountdown == 0
-                                ? 'Отправить код повторно'
-                                : 'Повторная отправка через $_resendCountdown сек',
+                                ? tr('Отправить код повторно')
+                                : trf('Повторная отправка через {seconds} сек',
+                                    {'seconds': '$_resendCountdown'}),
                             style: HSText.footnote.copyWith(
                               fontWeight: FontWeight.w600,
                               color: _resendCountdown == 0

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
@@ -53,14 +54,14 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
 
     setState(() => _isSaving = true);
     final car = ref.read(carProfileProvider);
-    String title = 'Автомобиль обновлён';
-    String message = 'Данные автомобиля сохранены.';
+    String title = tr('Автомобиль обновлён');
+    String message = tr('Данные автомобиля сохранены.');
     try {
       await ref.read(sessionProvider.notifier).updateCar(
             car.copyWith(model: model, color: color, plateNumber: plate),
           );
     } catch (e) {
-      title = 'Не удалось сохранить';
+      title = tr('Не удалось сохранить');
       message = e.toString();
     }
     if (!mounted) return;
@@ -73,7 +74,7 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
       ),
@@ -85,16 +86,16 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
     required String color,
     required String plate,
   }) {
-    if (model.isEmpty) return 'Укажите марку и модель автомобиля.';
-    if (model.length > 50) return 'Марка и модель: не больше 50 символов.';
-    if (color.isEmpty) return 'Укажите цвет автомобиля.';
-    if (color.length > 30) return 'Цвет: не больше 30 символов.';
+    if (model.isEmpty) return tr('Укажите марку и модель автомобиля.');
+    if (model.length > 50) return tr('Марка и модель: не больше 50 символов.');
+    if (color.isEmpty) return tr('Укажите цвет автомобиля.');
+    if (color.length > 30) return tr('Цвет: не больше 30 символов.');
     // A colour can't be just digits — "12345" is not a colour (QA #91).
     if (RegExp(r'^[0-9]+$').hasMatch(color)) {
-      return 'Цвет: введите название цвета, а не число.';
+      return tr('Цвет: введите название цвета, а не число.');
     }
-    if (plate.isEmpty) return 'Укажите номер автомобиля.';
-    if (plate.length > 15) return 'Номер: не больше 15 символов.';
+    if (plate.isEmpty) return tr('Укажите номер автомобиля.');
+    if (plate.length > 15) return tr('Номер: не больше 15 символов.');
     return null;
   }
 
@@ -102,12 +103,12 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Проверьте данные'),
+        title: Text(tr('Проверьте данные')),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
       ),
@@ -119,7 +120,7 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
     final hs = context.hs;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Автомобиль')),
+      appBar: AppBar(title: Text(tr('Автомобиль'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -134,39 +135,39 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Автомобиль', style: HSText.headline),
+                Text(tr('Автомобиль'), style: HSText.headline),
                 const SizedBox(height: 18),
                 SimpleProfileInput(
-                  title: 'Марка и модель',
+                  title: tr('Марка и модель'),
                   child: TextField(
                     controller: _model,
                     inputFormatters: [LengthLimitingTextInputFormatter(50)],
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Например, Chevrolet Cobalt',
+                    decoration: InputDecoration.collapsed(
+                      hintText: tr('Например, Chevrolet Cobalt'),
                     ),
                     style: HSText.body.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(height: 16),
                 SimpleProfileInput(
-                  title: 'Цвет',
+                  title: tr('Цвет'),
                   child: TextField(
                     controller: _color,
                     inputFormatters: [LengthLimitingTextInputFormatter(30)],
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Например, Белый',
+                    decoration: InputDecoration.collapsed(
+                      hintText: tr('Например, Белый'),
                     ),
                     style: HSText.body.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(height: 16),
                 SimpleProfileInput(
-                  title: 'Номер',
+                  title: tr('Номер'),
                   child: TextField(
                     controller: _plate,
                     inputFormatters: [LengthLimitingTextInputFormatter(15)],
-                    decoration: const InputDecoration.collapsed(
-                      hintText: 'Например, 1234 AA',
+                    decoration: InputDecoration.collapsed(
+                      hintText: tr('Например, 1234 AA'),
                     ),
                     style: HSText.body.copyWith(fontWeight: FontWeight.w600),
                   ),
@@ -190,7 +191,7 @@ class _CarSettingsScreenState extends ConsumerState<CarSettingsScreen> {
                 12 + MediaQuery.of(context).padding.bottom,
               ),
               child: PrimaryFilledButton(
-                label: 'Сохранить автомобиль',
+                label: tr('Сохранить автомобиль'),
                 isLoading: _isSaving,
                 onPressed: _isSaving ? null : _save,
               ),

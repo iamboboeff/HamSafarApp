@@ -3,6 +3,7 @@ import 'dart:io' show HttpClient, HttpDate, HttpException, Platform;
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../i18n/l10n.dart';
 import '../../models/activity_notification.dart';
 import '../../models/booked_trip.dart';
 import '../../models/car_profile.dart';
@@ -142,7 +143,7 @@ class SupabaseService {
     }
     final user = currentUser;
     if (user == null) {
-      throw SupabaseServiceError('Не удалось войти. Попробуйте ещё раз.');
+      throw SupabaseServiceError(tr('Не удалось войти. Попробуйте ещё раз.'));
     }
     return _fetchSessionData(user);
   }
@@ -210,7 +211,7 @@ class SupabaseService {
     }
     if (currentUser == null) {
       throw SupabaseServiceError(
-        'Не удалось подтвердить код. Попробуйте снова.',
+        tr('Не удалось подтвердить код. Попробуйте снова.'),
       );
     }
   }
@@ -233,7 +234,7 @@ class SupabaseService {
     final user = currentUser;
     if (user == null) {
       throw SupabaseServiceError(
-        'Не удалось завершить регистрацию. Попробуйте снова.',
+        tr('Не удалось завершить регистрацию. Попробуйте снова.'),
       );
     }
     return _fetchSessionData(user);
@@ -268,14 +269,14 @@ class SupabaseService {
       await response.drain<void>();
       final dateHeader = response.headers.value('date');
       if (dateHeader == null || dateHeader.isEmpty) {
-        throw SupabaseServiceError('Не удалось получить серверное время.');
+        throw SupabaseServiceError(tr('Не удалось получить серверное время.'));
       }
       try {
         return HttpDate.parse(dateHeader).toUtc();
       } on HttpException {
-        throw SupabaseServiceError('Не удалось разобрать серверное время.');
+        throw SupabaseServiceError(tr('Не удалось разобрать серверное время.'));
       } on FormatException {
-        throw SupabaseServiceError('Не удалось разобрать серверное время.');
+        throw SupabaseServiceError(tr('Не удалось разобрать серверное время.'));
       }
     } finally {
       client.close(force: false);
@@ -309,14 +310,14 @@ class SupabaseService {
       final res = await _client.functions.invoke('delete-account');
       if (res.status != 200) {
         throw SupabaseServiceError(
-          'Не удалось удалить аккаунт. Попробуйте ещё раз.',
+          tr('Не удалось удалить аккаунт. Попробуйте ещё раз.'),
         );
       }
     } on SupabaseServiceError {
       rethrow;
     } catch (_) {
       throw SupabaseServiceError(
-        'Не удалось удалить аккаунт. Попробуйте ещё раз.',
+        tr('Не удалось удалить аккаунт. Попробуйте ещё раз.'),
       );
     }
   }
@@ -367,7 +368,7 @@ class SupabaseService {
       backendId: user.id,
       name: (user.userMetadata?['full_name'] as String?) ??
           user.email ??
-          'Пользователь',
+          tr('Пользователь'),
       rating: 5,
       completedTrips: 0,
       phoneNumber: user.phone ?? '',
@@ -636,7 +637,7 @@ class SupabaseService {
   ) {
     final result = <String, List<RideReview>>{};
     for (final row in rows) {
-      final author = profilesById[row.reviewerId]?.name ?? 'Пассажир';
+      final author = profilesById[row.reviewerId]?.name ?? tr('Пассажир');
       result.putIfAbsent(row.revieweeId, () => []).add(row.toModel(author));
     }
     return result;
@@ -702,11 +703,11 @@ class SupabaseService {
               UserProfile(
                 id: row.passengerId,
                 backendId: row.passengerId,
-                name: 'Пассажир',
+                name: tr('Пассажир'),
                 rating: 5,
                 completedTrips: 0,
               );
-          return row.toModel(passenger, localizedStatus: 'Активно');
+          return row.toModel(passenger, localizedStatus: tr('Активно'));
         })
         .where((r) => !r.isCompleted)
         .toList();
@@ -902,7 +903,7 @@ class SupabaseService {
           UserProfile(
             id: row.passengerId,
             backendId: row.passengerId,
-            name: 'Пассажир',
+            name: tr('Пассажир'),
             rating: 5,
             completedTrips: 0,
           );
@@ -935,12 +936,12 @@ class SupabaseService {
       payloadToCity: payload.toCity,
       payloadDepartureAt: payload.departureAt,
       maxActive: _maxActiveRidesPerDriver,
-      duplicateMessage:
-          'Похожая поездка уже опубликована. Не создавайте дубликат маршрута.',
+      duplicateMessage: tr(
+          'Похожая поездка уже опубликована. Не создавайте дубликат маршрута.'),
       activeLimitMessage:
-          'Можно держать не больше 5 активных поездок одновременно.',
-      cooldownMessage: (s) =>
-          'Подождите $s сек. перед следующей публикацией поездки.',
+          tr('Можно держать не больше 5 активных поездок одновременно.'),
+      cooldownMessage: (s) => trf(
+          'Подождите {s} сек. перед следующей публикацией поездки.', {'s': s}),
     );
     final vehicleId = await _ensureVehicleExists(carProfile);
 
@@ -995,12 +996,12 @@ class SupabaseService {
       payloadToCity: payload.toCity,
       payloadDepartureAt: payload.departureAt,
       maxActive: _maxActivePassengerRequestsPerUser,
-      duplicateMessage:
-          'Похожий запрос уже опубликован. Не создавайте дубликат маршрута.',
-      activeLimitMessage:
-          'Можно держать не больше 3 активных пассажирских запросов одновременно.',
-      cooldownMessage: (s) =>
-          'Подождите $s сек. перед следующим запросом пассажира.',
+      duplicateMessage: tr(
+          'Похожий запрос уже опубликован. Не создавайте дубликат маршрута.'),
+      activeLimitMessage: tr(
+          'Можно держать не больше 3 активных пассажирских запросов одновременно.'),
+      cooldownMessage: (s) => trf(
+          'Подождите {s} сек. перед следующим запросом пассажира.', {'s': s}),
     );
 
     final inserted = await _client
@@ -1021,7 +1022,7 @@ class SupabaseService {
         .single();
 
     return PassengerRequestRow(inserted)
-        .toModel(passenger, localizedStatus: 'Активно');
+        .toModel(passenger, localizedStatus: tr('Активно'));
   }
 
   Future<BookedTrip> createBooking({
@@ -1032,19 +1033,19 @@ class SupabaseService {
     final rideId = ride.backendId;
     if (rideId == null) {
       throw SupabaseServiceError(
-        'Не удалось определить поездку для бронирования.',
+        tr('Не удалось определить поездку для бронирования.'),
       );
     }
     if (ride.driver.backendId == user.id) {
-      throw SupabaseServiceError('Нельзя забронировать собственную поездку.');
+      throw SupabaseServiceError(tr('Нельзя забронировать собственную поездку.'));
     }
     if (seatsCount <= 0) {
-      throw SupabaseServiceError('Выберите количество мест.');
+      throw SupabaseServiceError(tr('Выберите количество мест.'));
     }
     // Can't book a ride whose departure time has already passed (QA #71).
     if (!ride.departureDate.isAfter(DateTime.now())) {
       throw SupabaseServiceError(
-        'Время отправления этой поездки уже прошло.',
+        tr('Время отправления этой поездки уже прошло.'),
       );
     }
 
@@ -1060,7 +1061,7 @@ class SupabaseService {
         .length;
     if (activeCount >= _maxActiveBookingsPerPassenger) {
       throw SupabaseServiceError(
-        'Можно держать не больше 3 активных бронирований одновременно.',
+        tr('Можно держать не больше 3 активных бронирований одновременно.'),
       );
     }
 
@@ -1089,7 +1090,7 @@ class SupabaseService {
     if (existing != null) {
       final existingStatus = existing['status'] as String?;
       if (existingStatus == 'pending' || existingStatus == 'confirmed') {
-        throw SupabaseServiceError('Вы уже забронировали эту поездку.');
+        throw SupabaseServiceError(tr('Вы уже забронировали эту поездку.'));
       }
       row = await _client
           .from('bookings')
@@ -1176,7 +1177,7 @@ class SupabaseService {
   User _requireUser() {
     final user = currentUser;
     if (user == null) {
-      throw SupabaseServiceError('Пользователь не авторизован.');
+      throw SupabaseServiceError(tr('Пользователь не авторизован.'));
     }
     return user;
   }
@@ -1358,7 +1359,7 @@ class SupabaseService {
   Future<void> blockUser(String blockedId) async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) {
-      throw SupabaseServiceError('Пользователь не авторизован.');
+      throw SupabaseServiceError(tr('Пользователь не авторизован.'));
     }
     if (blockedId == userId) return;
     await _client.from('blocked_users').upsert(
@@ -1405,7 +1406,7 @@ class SupabaseService {
       byId[id] = UserProfile(
         id: id,
         backendId: id,
-        name: (raw['full_name'] as String?) ?? 'Пользователь',
+        name: (raw['full_name'] as String?) ?? tr('Пользователь'),
         rating: 0,
         completedTrips: 0,
         avatarBytes: UserProfile.decodeAvatarUrl(raw['avatar_url'] as String?),
@@ -1454,7 +1455,7 @@ class SupabaseService {
     final status = response.status;
     if (status < 200 || status >= 300) {
       throw SupabaseServiceError(
-        'Не удалось отправить обращение (HTTP $status).',
+        trf('Не удалось отправить обращение (HTTP {status}).', {'status': status}),
       );
     }
   }
@@ -1528,11 +1529,11 @@ class SupabaseService {
     final namesById = <String, String>{
       for (final raw in profileRows)
         (raw as Map)['id'] as String:
-            ((raw)['full_name'] as String?) ?? 'Пользователь',
+            ((raw)['full_name'] as String?) ?? tr('Пользователь'),
     };
     return [
       for (final row in rows)
-        row.toModel(namesById[row.reviewerId] ?? 'Пользователь'),
+        row.toModel(namesById[row.reviewerId] ?? tr('Пользователь')),
     ];
   }
 
@@ -1557,7 +1558,7 @@ class SupabaseService {
         .limit(1);
     if (rows.isEmpty) return null;
     final row = RideReviewRow(Map<String, dynamic>.from(rows.first as Map));
-    return row.toModel('Вы');
+    return row.toModel(tr('Вы'));
   }
 
   /// Ported from `submitRideReview`. No-ops if the user has already left a
@@ -1570,7 +1571,7 @@ class SupabaseService {
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) {
-      throw SupabaseServiceError('Пользователь не авторизован.');
+      throw SupabaseServiceError(tr('Пользователь не авторизован.'));
     }
     final existing = await fetchMyRideReview(
       rideId: rideId,
@@ -1727,41 +1728,61 @@ String _localizedAuthError(String raw, _AuthCtx context) {
   if (n.contains('invalid login credentials') ||
       n.contains('invalid credentials') ||
       n.contains('invalid email or password')) {
-    return 'Неверный email или пароль.';
+    return tr('Неверный email или пароль.');
   }
   if (n.contains('email not confirmed')) {
-    return 'Подтвердите email и попробуйте снова.';
+    return tr('Подтвердите email и попробуйте снова.');
   }
   if (n.contains('user already registered') ||
       n.contains('already been registered')) {
-    return 'Пользователь с таким email уже зарегистрирован.';
+    return tr('Пользователь с таким email уже зарегистрирован.');
   }
   if (n.contains('rate limit') ||
       n.contains('security purposes') ||
       n.contains('too many requests')) {
     final secs = _retryAfterSeconds(raw);
     if (secs != null) {
-      return 'Слишком много попыток. Попробуйте снова через $secs сек.';
+      return trf(
+          'Слишком много попыток. Попробуйте снова через {secs} сек.',
+          {'secs': secs});
     }
-    return 'Слишком много попыток. Подождите немного и попробуйте снова.';
+    return tr('Слишком много попыток. Подождите немного и попробуйте снова.');
   }
   if (n.contains('otp') && n.contains('expired')) {
-    return 'Срок действия кода истёк. Запросите новый код.';
+    return tr('Срок действия кода истёк. Запросите новый код.');
   }
   if (n.contains('otp') && (n.contains('invalid') || n.contains('token'))) {
-    return 'Неверный код подтверждения. Проверьте письмо и попробуйте снова.';
+    return tr('Неверный код подтверждения. Проверьте письмо и попробуйте снова.');
   }
-  if (n.contains('network') || n.contains('internet') || n.contains('offline')) {
-    return 'Нет соединения с интернетом. Проверьте сеть и повторите попытку.';
+  // Offline: gotrue wraps the underlying socket/HTTP failure in an
+  // AuthRetryableFetchException whose message is error.toString(), e.g.
+  // "ClientException with SocketException: Failed host lookup ...". None of
+  // those contain "network"/"internet", so match the raw socket markers too —
+  // otherwise an offline login falls through to the generic credentials error
+  // and the user can't tell "no connection" from "wrong password" (QA #92).
+  if (n.contains('network') ||
+      n.contains('internet') ||
+      n.contains('offline') ||
+      n.contains('socketexception') ||
+      n.contains('clientexception') ||
+      n.contains('retryablefetch') ||
+      n.contains('failed host lookup') ||
+      n.contains('connection refused') ||
+      n.contains('connection closed') ||
+      n.contains('connection reset') ||
+      n.contains('connection timed out') ||
+      n.contains('timed out')) {
+    return tr('Нет соединения с интернетом. Проверьте сеть и повторите попытку.');
   }
   return switch (context) {
-    _AuthCtx.signIn => 'Не удалось войти. Проверьте данные и попробуйте снова.',
+    _AuthCtx.signIn =>
+      tr('Не удалось войти. Проверьте данные и попробуйте снова.'),
     _AuthCtx.register =>
-      'Не удалось начать регистрацию. Проверьте данные и попробуйте снова.',
+      tr('Не удалось начать регистрацию. Проверьте данные и попробуйте снова.'),
     _AuthCtx.verifyCode =>
-      'Не удалось завершить регистрацию. Проверьте код и попробуйте снова.',
+      tr('Не удалось завершить регистрацию. Проверьте код и попробуйте снова.'),
     _AuthCtx.resendCode =>
-      'Не удалось отправить код повторно. Попробуйте чуть позже.',
+      tr('Не удалось отправить код повторно. Попробуйте чуть позже.'),
   };
 }
 

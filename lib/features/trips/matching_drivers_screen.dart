@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -41,7 +42,7 @@ class MatchingDriversScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Водители')),
+      appBar: AppBar(title: Text(tr('Водители'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -50,7 +51,7 @@ class MatchingDriversScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Подходящие водители', style: HSText.largeTitle),
+                Text(tr('Подходящие водители'), style: HSText.largeTitle),
                 const SizedBox(height: 6),
                 Text(
                   '$fromCity - $toCity',
@@ -62,7 +63,7 @@ class MatchingDriversScreen extends ConsumerWidget {
                 if (matches.isEmpty)
                   GlassCard(
                     child: Text(
-                      'По этому маршруту пока нет подходящих водителей.',
+                      tr('По этому маршруту пока нет подходящих водителей.'),
                       style: HSText.subheadline.copyWith(
                         color: context.secondaryText,
                       ),

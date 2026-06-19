@@ -67,25 +67,39 @@ class ChatThreadRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      // Name + route on one line (route to the right of the
+                      // name) — more compact than stacking them.
+                      child: Row(
+                        // Centre the route vertically against the name (baseline
+                        // alignment sat it a touch low).
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Text(
-                            thread.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
+                          // Name + route share the row by flex weight. The route
+                          // gets the larger share (3:2) so long city pairs like
+                          // "Ташкент - Самарканд" use the space a short name
+                          // leaves free instead of truncating at ~half width.
+                          Flexible(
+                            flex: 2,
+                            child: Text(
+                              thread.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            thread.route,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: HSText.caption.copyWith(
-                              color: context.secondaryText,
+                          const SizedBox(width: 8),
+                          Flexible(
+                            flex: 3,
+                            child: Text(
+                              thread.route,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: HSText.caption.copyWith(
+                                color: context.secondaryText,
+                              ),
                             ),
                           ),
                         ],

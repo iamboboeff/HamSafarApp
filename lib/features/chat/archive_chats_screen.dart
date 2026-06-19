@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,17 +25,19 @@ class ArchiveChatsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Архив')),
+      appBar: AppBar(title: Text(tr('Архив'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
           if (archived.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               child: EmptyChatStateContent(
                 icon: Icons.archive_outlined,
-                title: 'Архив пуст',
-                subtitle: 'Чаты, перенесённые в архив, будут храниться здесь.',
+                title: tr('Архив пуст'),
+                subtitle: tr(
+                  'Чаты, перенесённые в архив, будут храниться здесь.',
+                ),
               ),
             )
           else

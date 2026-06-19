@@ -244,16 +244,27 @@ class ProfileAvatar extends StatelessWidget {
 
 /// A star + rating value inside a pill — the recurring rating badge in cards.
 class RatingPill extends StatelessWidget {
-  const RatingPill({super.key, required this.rating, this.leading = const []});
+  const RatingPill({
+    super.key,
+    required this.rating,
+    this.leading = const [],
+    this.hasRating = true,
+  });
 
   final String rating;
 
   /// Extra icons shown before the star (e.g. instant-booking bolt).
   final List<Widget> leading;
 
+  /// When false the user has no reviews yet, so the star + rating are hidden —
+  /// only the [leading] feature icons remain (and nothing renders if there are
+  /// none).
+  final bool hasRating;
+
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
+    if (!hasRating && leading.isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -263,10 +274,16 @@ class RatingPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final widget in leading) ...[widget, const SizedBox(width: 8)],
-          Icon(Icons.star, size: 13, color: hs.star),
-          const SizedBox(width: 4),
-          Text(rating, style: HSText.captionSemibold),
+          for (var i = 0; i < leading.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            leading[i],
+          ],
+          if (hasRating) ...[
+            if (leading.isNotEmpty) const SizedBox(width: 8),
+            Icon(Icons.star, size: 13, color: hs.star),
+            const SizedBox(width: 4),
+            Text(rating, style: HSText.captionSemibold),
+          ],
         ],
       ),
     );

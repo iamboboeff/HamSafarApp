@@ -60,11 +60,13 @@ class AppColors extends ThemeExtension<AppColors> {
     orange: _orange,
     star: _star,
     danger: Color(0xFFE5484D),
-    background: Color(0xFFFCF5EB),
-    tint: Color(0xFFE6F5F7),
-    cardBackground: Color(0xFFFFFCF7),
-    secondarySurface: Color(0xFFF2F7F2),
-    stroke: Color(0xC7D6E0E6),
+    // Neutral light-gray base (like the reference) with WHITE blocks on top —
+    // the page is the gray, the cards/fields are white and pop against it.
+    background: Color(0xFFF2F2F4),
+    tint: Color(0xFFEAEEF1),
+    cardBackground: Color(0xFFFFFFFF),
+    secondarySurface: Color(0xFFFFFFFF),
+    stroke: Color(0x1F000000),
   );
 
   factory AppColors.dark() => const AppColors(
@@ -76,10 +78,14 @@ class AppColors extends ThemeExtension<AppColors> {
     orange: _orange,
     star: _star,
     danger: Color(0xFFFF6166),
-    background: Color(0xFF0D1421),
-    tint: Color(0xFF141F33),
-    cardBackground: Color(0xFF141C2E),
-    secondarySurface: Color(0xFF1F2940),
+    // Neutral dark-gray surfaces (Aviasales-style) — the old palette was navy
+    // (blue ≈ 2× red), which read as heavy on the eyes. These are near-neutral
+    // charcoals (R≈G≈B) keeping our elevation ramp; the teal `primary` accent
+    // is unchanged.
+    background: Color(0xFF121214),
+    tint: Color(0xFF20242A),
+    cardBackground: Color(0xFF1C1C1F),
+    secondarySurface: Color(0xFF2A2A2E),
     stroke: Color(0x14FFFFFF),
   );
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
@@ -43,7 +44,7 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
     final details = _details.text.trim();
     if (details.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Опишите ситуацию перед отправкой.')),
+        SnackBar(content: Text(tr('Опишите ситуацию перед отправкой.'))),
       );
       return;
     }
@@ -63,21 +64,25 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
     setState(() => _isSubmitting = false);
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось отправить: $error')),
+        SnackBar(
+          content: Text(trf('Не удалось отправить: {error}', {'error': error})),
+        ),
       );
       return;
     }
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Жалоба отправлена'),
-        content: const Text(
-          'Спасибо за сигнал. Мы рассмотрим обращение и свяжемся при необходимости.',
+        title: Text(tr('Жалоба отправлена')),
+        content: Text(
+          tr(
+            'Спасибо за сигнал. Мы рассмотрим обращение и свяжемся при необходимости.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
       ),
@@ -90,12 +95,18 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
     final hs = context.hs;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Пожаловаться')),
+      appBar: AppBar(title: Text(tr('Пожаловаться'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
           SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+            // Left/right safe-area insets for landscape notch / Island (QA #93).
+            padding: EdgeInsets.fromLTRB(
+              20 + MediaQuery.paddingOf(context).left,
+              20,
+              20 + MediaQuery.paddingOf(context).right,
+              32,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -103,11 +114,14 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Жалоба на пользователя', style: HSText.headline),
+                      Text(tr('Жалоба на пользователя'), style: HSText.headline),
                       const SizedBox(height: 8),
                       Text(
-                        'Опишите ситуацию с пользователем ${widget.reportedUser.name}. '
-                        'Мы рассмотрим обращение в течение нескольких дней.',
+                        trf(
+                          'Опишите ситуацию с пользователем {name}. '
+                          'Мы рассмотрим обращение в течение нескольких дней.',
+                          {'name': widget.reportedUser.name},
+                        ),
                         style: HSText.subheadline.copyWith(
                           color: context.secondaryText,
                         ),
@@ -129,7 +143,7 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
                             isExpanded: true,
                             items: [
                               for (final r in _reasons)
-                                DropdownMenuItem(value: r, child: Text(r)),
+                                DropdownMenuItem(value: r, child: Text(tr(r))),
                             ],
                             onChanged: (v) =>
                                 setState(() => _reason = v ?? _reasons.first),
@@ -143,8 +157,9 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
                         maxLines: 8,
                         textCapitalization: TextCapitalization.sentences,
                         decoration: InputDecoration(
-                          hintText:
-                              'Опишите, что произошло — это поможет принять меры.',
+                          hintText: tr(
+                            'Опишите, что произошло — это поможет принять меры.',
+                          ),
                           filled: true,
                           fillColor: hs.secondarySurface,
                           border: OutlineInputBorder(
@@ -164,7 +179,7 @@ class _ReportUserScreenState extends ConsumerState<ReportUserScreen> {
                 PrimaryFilledButton(
                   isLoading: _isSubmitting,
                   onPressed: _isSubmitting ? null : _submit,
-                  label: 'Отправить жалобу',
+                  label: tr('Отправить жалобу'),
                 ),
               ],
             ),

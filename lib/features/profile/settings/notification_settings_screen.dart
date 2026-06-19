@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../../state/app_state.dart';
 import '../../../theme/app_text.dart';
@@ -17,23 +18,31 @@ class NotificationSettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Уведомления')),
+      appBar: AppBar(title: Text(tr('Уведомления'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
           SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(8, 20, 8, 20),
+            // Left/right safe-area insets for landscape notch / Island (QA #93).
+            padding: EdgeInsets.fromLTRB(
+              8 + MediaQuery.paddingOf(context).left,
+              20,
+              8 + MediaQuery.paddingOf(context).right,
+              20,
+            ),
             child: Column(
               children: [
                 GlassCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Уведомления', style: HSText.headline),
+                      Text(tr('Уведомления'), style: HSText.headline),
                       const SizedBox(height: 10),
                       Text(
-                        'Выберите, какие события приложение будет показывать '
-                        'в первую очередь.',
+                        tr(
+                          'Выберите, какие события приложение будет показывать '
+                          'в первую очередь.',
+                        ),
                         style: HSText.subheadline.copyWith(
                           color: context.secondaryText,
                         ),
@@ -42,19 +51,70 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+                // Master switch — lets the user turn off all notifications
+                // (QA #34). The contextual permission prompt on create/booking
+                // stays, but no-ops while this is off.
                 SettingsGroupCard(
                   children: [
                     ToggleRow(
-                      title: 'Сообщения',
-                      subtitle: 'Новые чаты и ответы в переписке',
+                      title: tr('Push-уведомления'),
+                      subtitle: tr(
+                        'Главный переключатель. Когда выключен, '
+                        'приложение не присылает уведомления и не '
+                        'запрашивает разрешение.',
+                      ),
+                      value: settings.pushEnabled,
+                      onChanged: (v) async {
+                        // Confirm before silencing notifications — turning this
+                        // off stops chat + booking notifications entirely.
+                        if (!v) {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => AlertDialog(
+                              title: Text(tr('Отключить уведомления?')),
+                              content: Text(
+                                tr(
+                                  'Сообщения от водителей и пассажиров и '
+                                  'подтверждения брони больше не будут '
+                                  'приходить.',
+                                ),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(false),
+                                  child: Text(tr('Отмена')),
+                                ),
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(true),
+                                  child: Text(tr('Отключить')),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed != true) return;
+                        }
+                        notifier.update(settings.copyWith(pushEnabled: v));
+                        ref.read(sessionProvider.notifier).setPushEnabled(v);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SettingsGroupCard(
+                  children: [
+                    ToggleRow(
+                      title: tr('Сообщения'),
+                      subtitle: tr('Новые чаты и ответы в переписке'),
                       value: settings.messages,
                       onChanged: (v) =>
                           notifier.update(settings.copyWith(messages: v)),
                     ),
                     const SettingsDivider(),
                     ToggleRow(
-                      title: 'Подтверждение брони',
-                      subtitle: 'Статусы заявок и подтверждённых мест',
+                      title: tr('Подтверждение брони'),
+                      subtitle: tr('Статусы заявок и подтверждённых мест'),
                       value: settings.bookingConfirmations,
                       onChanged: (v) => notifier.update(
                         settings.copyWith(bookingConfirmations: v),
@@ -62,16 +122,16 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     ),
                     const SettingsDivider(),
                     ToggleRow(
-                      title: 'Напоминания о поездке',
-                      subtitle: 'Выезд, время встречи и изменения',
+                      title: tr('Напоминания о поездке'),
+                      subtitle: tr('Выезд, время встречи и изменения'),
                       value: settings.tripReminders,
                       onChanged: (v) =>
                           notifier.update(settings.copyWith(tripReminders: v)),
                     ),
                     const SettingsDivider(),
                     ToggleRow(
-                      title: 'Акции и новости',
-                      subtitle: 'Подборки маршрутов и обновления сервиса',
+                      title: tr('Акции и новости'),
+                      subtitle: tr('Подборки маршрутов и обновления сервиса'),
                       value: settings.promotions,
                       onChanged: (v) =>
                           notifier.update(settings.copyWith(promotions: v)),

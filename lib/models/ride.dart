@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 import 'residence_country.dart';
 import 'user_profile.dart';
@@ -18,10 +20,10 @@ class RidePoint {
   final String? addressLine;
 
   factory RidePoint.meeting(String city) =>
-      RidePoint(title: 'Точка встречи', subtitle: city);
+      RidePoint(title: tr('Точка встречи'), subtitle: city);
 
   factory RidePoint.destination(String city) =>
-      RidePoint(title: 'Точка прибытия', subtitle: city);
+      RidePoint(title: tr('Точка прибытия'), subtitle: city);
 
   factory RidePoint.custom(String city, String label) =>
       RidePoint(title: label, subtitle: city, addressLine: label);
@@ -263,9 +265,11 @@ class Ride {
     final d = travelDuration;
     final h = d.inHours;
     final m = d.inMinutes % 60;
-    if (h > 0 && m > 0) return '$h ч $m мин';
-    if (h > 0) return '$h ч';
-    return '$m мин';
+    if (h > 0 && m > 0) {
+      return trf('{h} ч {m} мин', {'h': '$h', 'm': '$m'});
+    }
+    if (h > 0) return trf('{h} ч', {'h': '$h'});
+    return trf('{m} мин', {'m': '$m'});
   }
 
   Duration get _fallbackTravelDuration {

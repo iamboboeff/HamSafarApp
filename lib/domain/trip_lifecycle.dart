@@ -1,3 +1,4 @@
+import '../core/i18n/l10n.dart';
 import '../core/supabase/supabase_chat_service.dart';
 import '../models/booked_trip.dart';
 import '../models/chat.dart';
@@ -74,22 +75,32 @@ class TripLifecycleDomain {
 
       if (shouldSendStart) {
         await post(
-          'Система: поездка ${_routeTextFor(trip)} от '
-          '${DateTextFormatter.dayMonthTime(trip.ride.departureDate)} '
-          'началась.',
+          trf(
+            'Система: поездка {route} от {datetime} началась.',
+            {
+              'route': _routeTextFor(trip),
+              'datetime':
+                  DateTextFormatter.dayMonthTime(trip.ride.departureDate),
+            },
+          ),
         );
       }
       if (shouldSendCompleted) {
         await post(
-          'Система: поездка ${_routeTextFor(trip)} завершена.',
+          trf(
+            'Система: поездка {route} завершена.',
+            {'route': _routeTextFor(trip)},
+          ),
         );
       }
       if (shouldSendReviewReminder) {
         final hasReview = await hasOwnReview(trip);
         if (!hasReview) {
           await post(
-            'Система: поездка завершена. Оставьте отзыв о поездке, это '
-            'поможет другим пассажирам и водителям.',
+            tr(
+              'Система: поездка завершена. Оставьте отзыв о поездке, это '
+              'поможет другим пассажирам и водителям.',
+            ),
           );
         }
       }

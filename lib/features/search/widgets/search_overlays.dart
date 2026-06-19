@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_dimens.dart';
 import '../../../theme/app_text.dart';
@@ -122,7 +123,7 @@ class _SearchCalendarOverlayState extends State<SearchCalendarOverlay> {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     return _OverlayCard(
-      title: 'Дата поездки',
+      title: tr('Дата поездки'),
       onClose: widget.onClose,
       children: [
         CalendarDatePicker(
@@ -133,7 +134,7 @@ class _SearchCalendarOverlayState extends State<SearchCalendarOverlay> {
         ),
         const SizedBox(height: 8),
         PrimaryFilledButton(
-          label: 'Выбрать дату',
+          label: tr('Выбрать дату'),
           onPressed: () => widget.onConfirm(_draft),
         ),
       ],
@@ -159,7 +160,7 @@ class SearchFiltersOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final hs = context.hs;
     return _OverlayCard(
-      title: 'Фильтры',
+      title: tr('Пассажиры'),
       onClose: onClose,
       children: [
         Container(
@@ -177,7 +178,7 @@ class SearchFiltersOverlay extends StatelessWidget {
                   Icon(Icons.people, size: 14, color: context.secondaryText),
                   const SizedBox(width: 6),
                   Text(
-                    'Пассажиры',
+                    tr('Пассажиры'),
                     style: HSText.caption.copyWith(
                       color: context.secondaryText,
                     ),
@@ -204,7 +205,7 @@ class SearchFiltersOverlay extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        PrimaryFilledButton(label: 'Показать результаты', onPressed: onClose),
+        PrimaryFilledButton(label: tr('Показать результаты'), onPressed: onClose),
       ],
     );
   }

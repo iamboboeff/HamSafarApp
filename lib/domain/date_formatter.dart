@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 /// Ported from `DateTextFormatter` in `Models.swift`.
 ///
 /// All output uses the Russian locale; [_normalized] mirrors the Swift helper
@@ -44,8 +46,12 @@ abstract final class DateTextFormatter {
   /// Section headers in search results: "Сегодня, понедельник" etc.
   static String resultsSectionTitle(DateTime date) {
     final weekday = DateFormat('EEEE', _locale).format(date).toLowerCase();
-    if (DateUtilsX.isToday(date)) return 'Сегодня, $weekday';
-    if (DateUtilsX.isTomorrow(date)) return 'Завтра, $weekday';
+    if (DateUtilsX.isToday(date)) {
+      return trf('Сегодня, {weekday}', {'weekday': weekday});
+    }
+    if (DateUtilsX.isTomorrow(date)) {
+      return trf('Завтра, {weekday}', {'weekday': weekday});
+    }
     final full = DateFormat('d MMM, EEEE', _locale).format(date);
     return _normalized(full);
   }

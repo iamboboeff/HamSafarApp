@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../domain/date_formatter.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text.dart';
@@ -51,18 +52,18 @@ class _DatePickerSheetState extends State<_DatePickerSheet> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Закрыть'),
+                    child: Text(tr('Закрыть')),
                   ),
                   Expanded(
                     child: Text(
-                      'Когда вы едете?',
+                      tr('Когда вы едете?'),
                       textAlign: TextAlign.center,
                       style: HSText.headline,
                     ),
                   ),
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(_selected),
-                    child: const Text('Готово'),
+                    child: Text(tr('Готово')),
                   ),
                 ],
               ),

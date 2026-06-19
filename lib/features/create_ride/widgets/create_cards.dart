@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../models/ride.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text.dart';
@@ -98,8 +99,8 @@ class MeetingPlaceSelectorCard extends StatelessWidget {
 
     final chips = <Widget>[
       MeetingPlaceChip(
-        title: 'Без уточнения',
-        subtitle: 'Только город',
+        title: tr('Без уточнения'),
+        subtitle: tr('Только город'),
         isSelected: selectedPlace == null && !isCustomSelected,
         onTap: () => onChoose(null, false),
       ),
@@ -111,8 +112,8 @@ class MeetingPlaceSelectorCard extends StatelessWidget {
           onTap: () => onChoose(place, false),
         ),
       MeetingPlaceChip(
-        title: 'Свой вариант',
-        subtitle: customText.trim().isEmpty ? 'Указать вручную' : customText,
+        title: tr('Свой вариант'),
+        subtitle: customText.trim().isEmpty ? tr('Указать вручную') : customText,
         isSelected: isCustomSelected,
         onTap: () => onChoose(null, true),
       ),
@@ -135,8 +136,10 @@ class MeetingPlaceSelectorCard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Можно выбрать популярную точку, если хотите сразу '
-          'договориться о месте.',
+          tr(
+            'Можно выбрать популярную точку, если хотите сразу '
+            'договориться о месте.',
+          ),
           style: HSText.footnote.copyWith(color: context.secondaryText),
         ),
         const SizedBox(height: 12),
@@ -156,7 +159,7 @@ class MeetingPlaceSelectorCard extends StatelessWidget {
             onChanged: onCustomTextChanged,
             textCapitalization: TextCapitalization.sentences,
             decoration: InputDecoration(
-              hintText: 'Например, Чорсу, вход 2',
+              hintText: tr('Например, Автоцентр'),
               filled: true,
               fillColor: hs.secondarySurface,
               contentPadding: const EdgeInsets.symmetric(

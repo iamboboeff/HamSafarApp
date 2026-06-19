@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../i18n/l10n.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/chat.dart';
 import '../../models/user_profile.dart';
@@ -35,11 +37,15 @@ class SupabaseChatService {
   static const String _attachmentsBucket = 'chat-attachments';
 
   RealtimeChannel? _chatRealtimeChannel;
+  // Resilience: whether realtime is wanted (so a teardown isn't auto-resubscribed)
+  // and a backoff timer for re-subscribing after a channel error / timeout.
+  bool _realtimeDesired = false;
+  Timer? _realtimeRetry;
 
   String get _requireUserId {
     final id = _client.auth.currentUser?.id;
     if (id == null) {
-      throw SupabaseServiceError('Пользователь не авторизован.');
+      throw SupabaseServiceError(tr('Пользователь не авторизован.'));
     }
     return id;
   }
@@ -53,6 +59,14 @@ class SupabaseChatService {
   Future<void> startChatRealtimeSync(void Function(String? threadId) onSync) async {
     await stopChatRealtimeSync();
     if (_client.auth.currentUser == null) return;
+    _realtimeDesired = true;
+
+    // The realtime socket must carry the current user's JWT, otherwise the
+    // postgres_changes RLS check runs as anon and the participant-scoped chat
+    // policies return zero rows — so the device silently receives nothing. This
+    // is re-applied on every (re)subscribe and on token refresh (see app.dart).
+    final token = _client.auth.currentSession?.accessToken;
+    if (token != null) _client.realtime.setAuth(token);
 
     String? threadIdOf(PostgresChangePayload payload) {
       final record = payload.newRecord.isNotEmpty
@@ -83,15 +97,47 @@ class SupabaseChatService {
       );
     }
 
-    channel.subscribe();
+    channel.subscribe((status, _) {
+      if (status == RealtimeSubscribeStatus.subscribed) {
+        _realtimeRetry?.cancel();
+        // Backfill anything missed while (re)connecting.
+        onSync(null);
+      } else if (status == RealtimeSubscribeStatus.channelError ||
+          status == RealtimeSubscribeStatus.timedOut) {
+        _scheduleRealtimeResubscribe(onSync);
+      }
+    });
+  }
+
+  /// Re-subscribes after a transient channel error/timeout (e.g. a dropped
+  /// websocket on an idle second device), unless realtime was intentionally
+  /// stopped. Without this the only recovery was an app-foreground refresh.
+  void _scheduleRealtimeResubscribe(void Function(String? threadId) onSync) {
+    if (!_realtimeDesired) return;
+    _realtimeRetry?.cancel();
+    _realtimeRetry = Timer(const Duration(seconds: 3), () {
+      if (_realtimeDesired && _client.auth.currentUser != null) {
+        startChatRealtimeSync(onSync);
+      }
+    });
   }
 
   Future<void> stopChatRealtimeSync() async {
+    _realtimeDesired = false;
+    _realtimeRetry?.cancel();
+    _realtimeRetry = null;
     final channel = _chatRealtimeChannel;
     _chatRealtimeChannel = null;
     if (channel != null) {
       await _client.removeChannel(channel);
     }
+  }
+
+  /// Re-applies the current access token to the realtime socket — call after a
+  /// token refresh so RLS-gated postgres_changes keep flowing.
+  void refreshRealtimeAuth() {
+    final token = _client.auth.currentSession?.accessToken;
+    if (token != null) _client.realtime.setAuth(token);
   }
 
   // ---------------------------------------------------------------------------
@@ -117,7 +163,7 @@ class SupabaseChatService {
       final id = raw['id'] as String?;
       if (id == null) continue;
       map[id] = _CounterpartProfile(
-        name: (raw['full_name'] as String?) ?? 'Чат',
+        name: (raw['full_name'] as String?) ?? tr('Чат'),
         avatarBytes:
             UserProfile.decodeAvatarUrl(raw['avatar_url'] as String?),
         avatarUrl:
@@ -188,7 +234,7 @@ class SupabaseChatService {
           : threadMessages
               .reduce((a, b) => a.createdAt.isAfter(b.createdAt) ? a : b);
       final latestContent = latestMessage == null
-          ? const ChatMessageContent(text: 'Новый диалог')
+          ? ChatMessageContent(text: tr('Новый диалог'))
           : chatMessageContent(latestMessage);
       final previewMessage =
           latestContent.attachment?.previewText ?? latestContent.text;
@@ -214,14 +260,14 @@ class SupabaseChatService {
             passengerRequestId: row.passengerRequestId,
             participantBackendId: counterpartId,
             name: counterpartId == null
-                ? 'Чат'
-                : (profileNames[counterpartId]?.name ?? 'Чат'),
+                ? tr('Чат')
+                : (profileNames[counterpartId]?.name ?? tr('Чат')),
             route: normalizedChatRoute(row.title ?? 'Диалог'),
             preview: previewMessage,
             timeLabel: DateTextFormatter.time(latestDate),
             tripStatus: row.title ?? 'Диалог',
             tagline: _taglineFor(latestMessage?.kind),
-            headerNote: 'Обсудите детали поездки, время и место встречи.',
+            headerNote: tr('Обсудите детали поездки, время и место встречи.'),
             unreadCount: unreadCount(
               rows: threadMessages,
               threadId: row.id,
@@ -321,16 +367,16 @@ class SupabaseChatService {
       passengerRequestId: row.passengerRequestId,
       participantBackendId: counterpartId,
       name: counterpartId == null
-          ? 'Чат'
-          : (profileNames[counterpartId]?.name ?? 'Чат'),
+          ? tr('Чат')
+          : (profileNames[counterpartId]?.name ?? tr('Чат')),
       route: normalizedChatRoute(row.title ?? 'Диалог'),
       preview: latestContent?.attachment?.previewText ??
           latestContent?.text ??
-          'Новый диалог',
+          tr('Новый диалог'),
       timeLabel: DateTextFormatter.time(latestDate),
       tripStatus: row.title ?? 'Диалог',
       tagline: _taglineFor(latestMessage?.kind),
-      headerNote: 'Обсудите детали поездки, время и место встречи.',
+      headerNote: tr('Обсудите детали поездки, время и место встречи.'),
       unreadCount: unreadCount(
         rows: messageRows,
         threadId: row.id,
@@ -437,18 +483,18 @@ class SupabaseChatService {
       passengerRequestId: row.passengerRequestId,
       participantBackendId: counterpartId,
       name: counterpartId == null
-          ? 'Чат'
-          : (profileNames[counterpartId]?.name ?? 'Чат'),
+          ? tr('Чат')
+          : (profileNames[counterpartId]?.name ?? tr('Чат')),
       route: normalizedChatRoute(row.title ?? 'Диалог'),
       preview: threadMessages.isEmpty
-          ? 'Новый диалог'
+          ? tr('Новый диалог')
           : threadMessages.last.previewText,
       timeLabel: DateTextFormatter.time(latestDate),
       tripStatus: row.title ?? 'Диалог',
       tagline: _taglineFor(
         threadMessages.isEmpty ? null : threadMessages.last.kind.name,
       ),
-      headerNote: 'Обсудите детали поездки, время и место встречи.',
+      headerNote: tr('Обсудите детали поездки, время и место встречи.'),
       unreadCount: unreadCount(
         rows: messageRows,
         threadId: row.id,
@@ -534,7 +580,7 @@ class SupabaseChatService {
   }) async {
     final userId = _requireUserId;
     if (participantId == userId) {
-      throw SupabaseServiceError('Нельзя начать диалог с самим собой.');
+      throw SupabaseServiceError(tr('Нельзя начать диалог с самим собой.'));
     }
     final normalizedRoute = normalizedChatRoute(route);
 
@@ -703,16 +749,18 @@ class SupabaseChatService {
   }
 
   String _formattedAttachmentSize(int bytes) {
-    if (bytes <= 0) return 'Вложение из чата';
+    if (bytes <= 0) return tr('Вложение из чата');
     const kb = 1024;
     const mb = 1024 * 1024;
     if (bytes >= mb) {
-      return '${(bytes / mb).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')} МБ';
+      final value =
+          (bytes / mb).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '');
+      return trf('{value} МБ', {'value': value});
     }
     if (bytes >= kb) {
-      return '${(bytes / kb).toStringAsFixed(0)} КБ';
+      return trf('{value} КБ', {'value': (bytes / kb).toStringAsFixed(0)});
     }
-    return '$bytes Б';
+    return trf('{value} Б', {'value': '$bytes'});
   }
 
   // ---------------------------------------------------------------------------
@@ -1088,9 +1136,9 @@ class SupabaseChatService {
   }
 
   String _taglineFor(String? messageKind) {
-    if (messageKind == 'system') return 'Системное сообщение';
-    if (messageKind == 'attachment') return 'Вложение';
-    return 'Сообщения';
+    if (messageKind == 'system') return tr('Системное сообщение');
+    if (messageKind == 'attachment') return tr('Вложение');
+    return tr('Сообщения');
   }
 }
 

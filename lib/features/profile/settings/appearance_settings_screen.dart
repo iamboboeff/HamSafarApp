@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/l10n.dart';
 import '../../../models/app_settings.dart';
 import '../../../state/app_state.dart';
 import '../../../theme/app_colors.dart';
@@ -20,51 +21,65 @@ class AppearanceSettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Язык и тема')),
+      appBar: AppBar(title: Text(tr('Язык и тема'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
           SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+            // Left/right safe-area insets for landscape notch / Island (QA #93).
+            padding: EdgeInsets.fromLTRB(
+              20 + MediaQuery.paddingOf(context).left,
+              20,
+              20 + MediaQuery.paddingOf(context).right,
+              40,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ── Language ─────────────────────────────────────────────
                 SettingsGroupCard(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: hs.primary.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(10),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _showLanguagePicker(
+                        context,
+                        appearance,
+                        notifier,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: hs.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                Icons.language,
+                                size: 18,
+                                color: hs.primary,
+                              ),
                             ),
-                            child: Icon(
-                              Icons.language,
+                            const SizedBox(width: 14),
+                            Text(tr('Язык'), style: HSText.subheadlineSemibold),
+                            const Spacer(),
+                            Text(
+                              appearance.language.title,
+                              style: HSText.subheadline.copyWith(
+                                color: context.secondaryText,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.chevron_right,
                               size: 18,
-                              color: hs.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Text('Язык', style: HSText.subheadlineSemibold),
-                          const Spacer(),
-                          Text(
-                            AppLanguage.russian.title,
-                            style: HSText.subheadline.copyWith(
                               color: context.secondaryText,
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Icon(
-                            Icons.chevron_right,
-                            size: 18,
-                            color: context.secondaryText,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -76,7 +91,7 @@ class AppearanceSettingsScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.only(left: 4, bottom: 12),
                   child: Text(
-                    'Оформление',
+                    tr('Оформление'),
                     style: HSText.captionSemibold.copyWith(
                       color: context.secondaryText,
                       letterSpacing: 0.5,
@@ -106,6 +121,56 @@ class AppearanceSettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// Bottom sheet listing the available languages (each shown in its own native
+  /// name). Picking one updates the appearance setting, which re-runs the app
+  /// build and re-renders the whole tree in the chosen language.
+  void _showLanguagePicker(
+    BuildContext context,
+    AppearanceSettings appearance,
+    AppearanceSettingsNotifier notifier,
+  ) {
+    final hs = context.hs;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: hs.cardBackground,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: Text(tr('Выберите язык'), style: HSText.headline),
+              ),
+              for (final lang in AppLanguage.values)
+                ListTile(
+                  title: Text(
+                    lang.title,
+                    style: HSText.subheadlineSemibold,
+                  ),
+                  trailing: appearance.language == lang
+                      ? Icon(Icons.check, color: hs.primary)
+                      : null,
+                  onTap: () {
+                    if (appearance.language != lang) {
+                      notifier.update(appearance.copyWith(language: lang));
+                    }
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -179,7 +244,7 @@ class _ThemeCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              preference.title,
+              tr(preference.title),
               style: HSText.captionSemibold.copyWith(color: labelColor),
               textAlign: TextAlign.center,
             ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../core/net_status.dart';
 import '../../domain/date_formatter.dart';
 import '../../domain/ride_booking.dart';
@@ -16,6 +17,7 @@ import '../../theme/app_text.dart';
 import '../../state/chat_state.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/common.dart';
+import '../auth/auth_screen.dart';
 import '../chat/chat_detail_screen.dart';
 import '../profile/public_profile_screen.dart';
 import 'ride_booking_checkout_screen.dart';
@@ -54,22 +56,43 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
   /// has its availability reduced by occupied seats, so counting them again
   /// would double-subtract.
   List<RidePassengerBooking> _passengers = const [];
+  bool _isLoadingPassengers = false;
 
   Ride get ride => widget.ride;
   BookedTrip? get bookedTrip => widget.bookedTrip;
   bool get isManagingBookedTrip => widget.isManagingBookedTrip;
 
+  /// Guests can browse a ride but must sign in to book or message the driver
+  /// (QA #16). Returns true (and opens the auth screen) when the user is a
+  /// guest, so callers can early-return.
+  bool _gateGuest() {
+    if (ref.read(isAuthenticatedProvider)) return false;
+    Navigator.of(context).push(
+      HSRoute<void>(
+        builder: (_) => const AuthScreen(),
+        fullscreenDialog: true,
+      ),
+    );
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
     if (ref.read(isCurrentUserProvider)(ride.driver)) {
+      // Show a loader for the passenger list while it's fetched, so the section
+      // doesn't flash "Пока нет активных заявок" before the data lands.
+      _isLoadingPassengers = true;
       _loadPassengers();
     }
   }
 
   Future<void> _loadPassengers() async {
     final rideId = ride.backendId;
-    if (rideId == null) return;
+    if (rideId == null) {
+      if (mounted) setState(() => _isLoadingPassengers = false);
+      return;
+    }
     try {
       final passengers = await ref
           .read(supabaseServiceProvider)
@@ -78,6 +101,8 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
       setState(() => _passengers = passengers);
     } catch (_) {
       // Best-effort; the screen still renders without the live passenger list.
+    } finally {
+      if (mounted) setState(() => _isLoadingPassengers = false);
     }
   }
 
@@ -85,9 +110,10 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
     final threadId = ref.read(chatProvider.notifier).openChatWithDriver(
           driver: booking.passenger,
           route: '${ride.fromCity} - ${ride.toCity}',
-          openingText:
-              'Здравствуйте! По вашей брони на поездку '
-              '${ride.fromCity} — ${ride.toCity}.',
+          openingText: trf(
+            'Здравствуйте! По вашей брони на поездку {route}.',
+            {'route': '${ride.fromCity} — ${ride.toCity}'},
+          ),
           departureDate: ride.departureDate,
           rideId: ride.backendId,
         );
@@ -113,20 +139,20 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Отменить бронь пассажира?'),
-        content: const Text(
-          'Пассажир будет удалён из подтверждённых бронирований этой поездки.',
+        title: Text(tr('Отменить бронь пассажира?')),
+        content: Text(
+          tr('Пассажир будет удалён из подтверждённых бронирований этой поездки.'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
+            child: Text(tr('Отмена')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text(
-              'Отменить бронь',
-              style: TextStyle(color: Colors.red),
+            child: Text(
+              tr('Отменить бронь'),
+              style: const TextStyle(color: Colors.red),
             ),
           ),
         ],
@@ -152,12 +178,12 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Не удалось выполнить действие'),
-          content: const Text('Попробуйте ещё раз.'),
+          title: Text(tr('Не удалось выполнить действие')),
+          content: Text(tr('Попробуйте ещё раз.')),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Ок'),
+              child: Text(tr('Ок')),
             ),
           ],
         ),
@@ -173,22 +199,26 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(asDriver ? 'Отменить поездку?' : 'Отменить бронь?'),
+        title: Text(
+          asDriver ? tr('Отменить поездку?') : tr('Отменить бронь?'),
+        ),
         content: Text(
           asDriver
-              ? 'Поездка будет отменена, а подтверждённые пассажиры получат '
-                  'уведомление об отмене.'
-              : 'Ваша заявка на эту поездку будет отменена.',
+              ? tr(
+                  'Поездка будет отменена, а подтверждённые пассажиры получат '
+                  'уведомление об отмене.',
+                )
+              : tr('Ваша заявка на эту поездку будет отменена.'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Назад'),
+            child: Text(tr('Назад')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(
-              asDriver ? 'Отменить поездку' : 'Отменить бронь',
+              asDriver ? tr('Отменить поездку') : tr('Отменить бронь'),
               style: const TextStyle(color: Colors.red),
             ),
           ),
@@ -208,15 +238,17 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: Text(
-            asDriver ? 'Не удалось отменить поездку' : 'Не удалось отменить бронь',
+            asDriver
+                ? tr('Не удалось отменить поездку')
+                : tr('Не удалось отменить бронь'),
           ),
           content: Text(
-            isOfflineError(e) ? offlineMessage : 'Попробуйте ещё раз.',
+            isOfflineError(e) ? offlineMessage : tr('Попробуйте ещё раз.'),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Ок'),
+              child: Text(tr('Ок')),
             ),
           ],
         ),
@@ -260,7 +292,7 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Детали поездки')),
+      appBar: AppBar(title: Text(tr('Детали поездки'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -276,6 +308,7 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
                     ride: ride,
                     detailState: detailState,
                     bookingCostText: bookingCostText,
+                    seatCount: automaticBookingSeatCount,
                     // The passenger can call off their own active booking
                     // from My Trips (QA #61).
                     canCancelBooking: isManagingBookedTrip &&
@@ -284,6 +317,7 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
                         !bookedTrip!.isCompleted,
                     onCancelBooking: () => _cancelTrip(asDriver: false),
                     onMessageDriver: () {
+                      if (_gateGuest()) return;
                       final currentRide = detailState.currentRide;
                       final threadId = ref
                           .read(chatProvider.notifier)
@@ -291,9 +325,13 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
                             driver: currentRide.driver,
                             route:
                                 '${currentRide.fromCity} - ${currentRide.toCity}',
-                            openingText:
-                                'Здравствуйте! Интересует поездка '
-                                '${currentRide.fromCity} — ${currentRide.toCity}.',
+                            openingText: trf(
+                              'Здравствуйте! Интересует поездка {route}.',
+                              {
+                                'route':
+                                    '${currentRide.fromCity} — ${currentRide.toCity}',
+                              },
+                            ),
                             departureDate: currentRide.departureDate,
                             rideId: currentRide.backendId,
                           );
@@ -308,7 +346,11 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
                     ride: ride,
                     detailState: detailState,
                     confirmedPassengers: confirmedPassengers,
-                    canRemovePassengers: detailState.isDriverManagingRide,
+                    isLoadingPassengers: _isLoadingPassengers,
+                    // Can't cancel passengers' bookings once the ride is over —
+                    // hide the action on finished trips (keeps «Написать»).
+                    canRemovePassengers: detailState.isDriverManagingRide &&
+                        !detailState.currentRide.hasFinished,
                     // The driver can call off an active trip they're managing
                     // (QA #58) — not one already finished or cancelled.
                     canCancelRide: isManagingBookedTrip &&
@@ -327,15 +369,18 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
       bottomNavigationBar: detailState.shouldShowBookingCTA
           ? _BookingContinueBar(
               seatCount: automaticBookingSeatCount,
-              onContinue: () => Navigator.of(context).push(
-                HSRoute<void>(
-                  builder: (_) => RideBookingCheckoutScreen(
-                    ride: ride,
-                    passengerCount: automaticBookingSeatCount,
-                    totalPriceText: bookingCostText,
+              onContinue: () {
+                if (_gateGuest()) return;
+                Navigator.of(context).push(
+                  HSRoute<void>(
+                    builder: (_) => RideBookingCheckoutScreen(
+                      ride: ride,
+                      passengerCount: automaticBookingSeatCount,
+                      totalPriceText: bookingCostText,
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             )
           : null,
     );
@@ -363,6 +408,7 @@ class _PassengerRideDetail extends StatelessWidget {
     required this.ride,
     required this.detailState,
     required this.bookingCostText,
+    required this.seatCount,
     required this.canCancelBooking,
     required this.onCancelBooking,
     required this.onMessageDriver,
@@ -371,6 +417,7 @@ class _PassengerRideDetail extends StatelessWidget {
   final Ride ride;
   final RideDetailDerivedState detailState;
   final String bookingCostText;
+  final int seatCount;
   final bool canCancelBooking;
   final VoidCallback onCancelBooking;
   final VoidCallback onMessageDriver;
@@ -380,6 +427,7 @@ class _PassengerRideDetail extends StatelessWidget {
     final hs = context.hs;
     final currentRide = detailState.currentRide;
     final arrivalTimeText = RideBookingDomain.arrivalTimeText(currentRide);
+    final conditions = detailState.tripConditions;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,16 +454,15 @@ class _PassengerRideDetail extends StatelessWidget {
                 children: [
                   RideLocationRow(
                     title: currentRide.fromCity,
-                    subtitle:
-                        currentRide.meetingPoint.addressLine ?? 'Уточняется',
+                    subtitle: currentRide.meetingPoint.addressLine ??
+                        tr('Уточняется'),
                     accent: hs.primary,
                     showsConnector: true,
                   ),
                   RideLocationRow(
                     title: currentRide.toCity,
-                    subtitle:
-                        currentRide.destinationPoint.addressLine ??
-                        'Уточняется',
+                    subtitle: currentRide.destinationPoint.addressLine ??
+                        tr('Уточняется'),
                     accent: hs.passenger,
                     showsConnector: false,
                   ),
@@ -428,7 +475,14 @@ class _PassengerRideDetail extends StatelessWidget {
         const BleedDivider(),
         const SizedBox(height: 18),
         RideDetailPriceSeatsSummary(
+          // The headline is the TOTAL for the requested number of seats, with
+          // a count-aware caption: «944 TJS / за 2 места». For a single seat
+          // that's just the per-seat price under «за место». bookingCostText =
+          // pricePerSeat × seatCount.
           priceText: bookingCostText,
+          priceLabel: seatCount > 1
+              ? trf('за {count} места', {'count': seatCount})
+              : tr('за место'),
           seatsLeft: detailState.displayedSeatsLeft,
         ),
         const SizedBox(height: 18),
@@ -442,32 +496,66 @@ class _PassengerRideDetail extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        const BleedDivider(),
-        const SizedBox(height: 18),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final row in detailState.passengerInfoRows)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: Row(
+        RideDetailPlainSection(
+          title: tr('Автомобиль'),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: hs.secondarySurface,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.directions_car, size: 18, color: hs.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 22,
-                      child: Icon(
-                        rideDetailIcon(row.iconKey),
-                        size: 16,
-                        color: rideDetailAccentColor(context, row.accent),
+                    Text(detailState.rideCarModelText, style: HSText.headline),
+                    const SizedBox(height: 4),
+                    Text(
+                      detailState.rideCarDetailText,
+                      style: HSText.subheadline.copyWith(
+                        color: context.secondaryText,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(row.title, style: HSText.headline)),
                   ],
                 ),
               ),
-          ],
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
+        if (conditions.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          RideDetailPlainSection(
+            title: tr('Условия поездки'),
+            child: Column(
+              children: [
+                for (var i = 0; i < conditions.length; i++) ...[
+                  RideConditionRow(
+                    title: conditions[i].title,
+                    subtitle: conditions[i].subtitle,
+                    icon: rideDetailIcon(conditions[i].iconKey),
+                    accent: rideDetailAccentColor(
+                      context,
+                      conditions[i].accent,
+                    ),
+                  ),
+                  if (i < conditions.length - 1)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 14, left: 50),
+                      child: Divider(height: 1),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
         GestureDetector(
           onTap: onMessageDriver,
           child: Container(
@@ -482,7 +570,9 @@ class _PassengerRideDetail extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Есть вопросы? ${currentRide.driver.name} ответит!',
+                    trf('Есть вопросы? {name} ответит!', {
+                      'name': currentRide.driver.name,
+                    }),
                     style: HSText.subheadlineSemibold.copyWith(
                       color: hs.primary,
                     ),
@@ -495,7 +585,7 @@ class _PassengerRideDetail extends StatelessWidget {
         if (canCancelBooking) ...[
           const SizedBox(height: 24),
           PrimaryFilledButton(
-            label: 'Отменить бронь',
+            label: tr('Отменить бронь'),
             accent: Colors.red.shade600,
             onPressed: onCancelBooking,
           ),
@@ -512,6 +602,7 @@ class _DriverRideDetail extends StatelessWidget {
     required this.ride,
     required this.detailState,
     required this.confirmedPassengers,
+    required this.isLoadingPassengers,
     required this.canRemovePassengers,
     required this.canCancelRide,
     required this.onCancelRide,
@@ -523,6 +614,7 @@ class _DriverRideDetail extends StatelessWidget {
   final Ride ride;
   final RideDetailDerivedState detailState;
   final List<RidePassengerBooking> confirmedPassengers;
+  final bool isLoadingPassengers;
   final bool canRemovePassengers;
   final bool canCancelRide;
   final VoidCallback onCancelRide;
@@ -562,16 +654,15 @@ class _DriverRideDetail extends StatelessWidget {
                 children: [
                   RideLocationRow(
                     title: currentRide.fromCity,
-                    subtitle:
-                        currentRide.meetingPoint.addressLine ?? 'Уточняется',
+                    subtitle: currentRide.meetingPoint.addressLine ??
+                        tr('Уточняется'),
                     accent: hs.primary,
                     showsConnector: true,
                   ),
                   RideLocationRow(
                     title: currentRide.toCity,
-                    subtitle:
-                        currentRide.destinationPoint.addressLine ??
-                        'Уточняется',
+                    subtitle: currentRide.destinationPoint.addressLine ??
+                        tr('Уточняется'),
                     accent: hs.passenger,
                     showsConnector: false,
                   ),
@@ -590,6 +681,7 @@ class _DriverRideDetail extends StatelessWidget {
         const SizedBox(height: 18),
         DriverRidePassengersSection(
           confirmedPassengers: confirmedPassengers,
+          isLoading: isLoadingPassengers,
           canRemovePassengers: canRemovePassengers,
           onOpenChat: onOpenChat,
           onRemovePassenger: onRemovePassenger,
@@ -597,7 +689,7 @@ class _DriverRideDetail extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         RideDetailPlainSection(
-          title: 'Автомобиль',
+          title: tr('Автомобиль'),
           child: Row(
             children: [
               Container(
@@ -632,7 +724,7 @@ class _DriverRideDetail extends StatelessWidget {
         if (conditions.isNotEmpty) ...[
           const SizedBox(height: 14),
           RideDetailPlainSection(
-            title: 'Условия поездки',
+            title: tr('Условия поездки'),
             child: Column(
               children: [
                 for (var i = 0; i < conditions.length; i++) ...[
@@ -658,7 +750,7 @@ class _DriverRideDetail extends StatelessWidget {
         if (canCancelRide) ...[
           const SizedBox(height: 24),
           PrimaryFilledButton(
-            label: 'Отменить поездку',
+            label: tr('Отменить поездку'),
             accent: Colors.red.shade600,
             onPressed: onCancelRide,
           ),
@@ -684,12 +776,19 @@ class _BookingContinueBar extends StatelessWidget {
     final bottomInset = MediaQuery.of(context).padding.bottom;
     return ColoredBox(
       color: hs.cardBackground,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + bottomInset),
-        child: PrimaryFilledButton(
-          label: seatCount == 0 ? 'Мест нет' : 'Продолжить',
-          onPressed: seatCount == 0 ? null : onContinue,
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Top hairline to match the checkout screen's action bar.
+          Divider(height: 1, color: hs.stroke),
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + bottomInset),
+            child: PrimaryFilledButton(
+              label: seatCount == 0 ? tr('Мест нет') : tr('Продолжить'),
+              onPressed: seatCount == 0 ? null : onContinue,
+            ),
+          ),
+        ],
       ),
     );
   }

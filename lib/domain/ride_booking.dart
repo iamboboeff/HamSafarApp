@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../models/residence_country.dart';
 import '../models/ride.dart';
 import '../models/ride_passenger_booking.dart';
@@ -59,7 +61,9 @@ abstract final class RideBookingDomain {
       DateTextFormatter.time(ride.departureDate.add(ride.travelDuration));
 
   static String bookingActionTitle(Ride ride) =>
-      ride.instantBookingEnabled ? 'Забронировать сразу' : 'Отправить заявку';
+      ride.instantBookingEnabled
+      ? tr('Забронировать сразу')
+      : tr('Отправить заявку');
 
   static String rideDriverSeatsText(Ride ride) =>
       '${ride.effectiveAvailableSeatLabels.length}';

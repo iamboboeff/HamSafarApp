@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 
 import '../core/app_navigator.dart';
@@ -70,11 +71,31 @@ class ChatState {
 /// archive now go through [SupabaseChatService], and the merge/dedup
 /// reconciliation keeps optimistic local threads consistent with fetches and
 /// realtime updates.
+/// An outgoing message whose send failed and is queued for retry, keyed by the
+/// optimistic message's local id.
+class _OutgoingDraft {
+  _OutgoingDraft({required this.localThreadId, required this.text});
+  final String localThreadId;
+  final String text;
+}
+
 class ChatNotifier extends Notifier<ChatState> {
   final Map<String, String> _pendingDrafts = {};
   String? _activeThreadId;
   Timer? _syncDebounce;
   bool _mounted = true;
+  // Realtime sync coalescing: a burst of postgres events is drained once, but
+  // we keep EVERY affected thread id (not just the last). Previously a single
+  // shared timer captured only the last event's threadId, so a presence event
+  // for thread B could cancel the pending message refresh for thread A — which
+  // is why a second device could miss an incoming message.
+  final Set<String> _pendingSyncThreadIds = {};
+  bool _pendingFullReload = false;
+  // Outbox: outgoing messages whose send failed (offline / server error), keyed
+  // by the optimistic message's local id. Retried via [retryMessage] (tap) or
+  // [flushOutbox] (on reconnect / app resume).
+  final Map<String, _OutgoingDraft> _outbox = {};
+  bool _flushingOutbox = false;
   // Per-thread unread baseline, so a realtime bump in a non-open chat can fire
   // an in-app banner once (and not on initial load).
   final Map<String, int> _lastUnread = {};
@@ -202,41 +223,70 @@ class ChatNotifier extends Notifier<ChatState> {
   }
 
   /// Debounced so a burst of postgres changes triggers a single sync pass.
+  /// Every affected thread id is QUEUED (not just the last event's), so a
+  /// presence/state event for one thread can never cancel the pending message
+  /// refresh for another — the bug behind a second device missing a message.
   void _handleRealtimeSync(String? threadId) {
+    if (threadId == null) {
+      _pendingFullReload = true;
+    } else {
+      _pendingSyncThreadIds.add(threadId);
+    }
     _syncDebounce?.cancel();
     // Short debounce just coalesces rapid bursts; kept small so an incoming
     // message in an open chat appears almost instantly.
-    _syncDebounce = Timer(const Duration(milliseconds: 120), () {
-      _performSync(threadId);
-    });
+    _syncDebounce = Timer(const Duration(milliseconds: 120), _drainSync);
   }
 
-  /// Ported from `ContentCoordinatorDataDomain.handleChatSync`.
-  Future<void> _performSync(String? threadId) async {
+  /// Drains every queued thread id from the debounce window (or a full reload).
+  Future<void> _drainSync() async {
     if (!_mounted) return;
-    if (threadId != null) {
-      final isActive = state.threads
-              .where((t) => t.id == _activeThreadId)
-              .map((t) => t.backendId)
-              .cast<String?>()
-              .firstWhere((_) => true, orElse: () => null) ==
-          threadId;
-      try {
-        final refreshed = isActive
-            ? await _service.fetchChat(threadId)
-            : await _service.fetchChatSummary(threadId);
-        if (refreshed != null && _mounted) {
-          // A blocked user's realtime message must not re-surface the thread.
-          if (_isThreadBlocked(refreshed)) return;
-          _mergeChat(refreshed);
-          if (!isActive) _maybeBanner(refreshed);
-        }
-      } catch (_) {
-        // Ignore — a later sync or explicit refresh recovers.
-      }
+    final fullReload = _pendingFullReload;
+    final threadIds = _pendingSyncThreadIds.toList();
+    _pendingFullReload = false;
+    _pendingSyncThreadIds.clear();
+    if (fullReload) {
+      await loadChats();
       return;
     }
-    await loadChats();
+    for (final threadId in threadIds) {
+      if (!_mounted) return;
+      await _performSync(threadId);
+    }
+    // If the open conversation is still an optimistic thread without a backendId
+    // (just created), a per-thread event can't be matched to it — reconcile with
+    // a full fetch so its server id + new messages land in the open chat.
+    if (_mounted && threadIds.isNotEmpty) {
+      final active = _activeThreadId;
+      if (active != null && threadById(active)?.backendId == null) {
+        await loadChats();
+      }
+    }
+  }
+
+  /// Ported from `ContentCoordinatorDataDomain.handleChatSync`. Refreshes a
+  /// single thread by its backend id.
+  Future<void> _performSync(String threadId) async {
+    if (!_mounted) return;
+    final isActive = state.threads
+            .where((t) => t.id == _activeThreadId)
+            .map((t) => t.backendId)
+            .cast<String?>()
+            .firstWhere((_) => true, orElse: () => null) ==
+        threadId;
+    try {
+      final refreshed = isActive
+          ? await _service.fetchChat(threadId)
+          : await _service.fetchChatSummary(threadId);
+      if (refreshed != null && _mounted) {
+        // A blocked user's realtime message must not re-surface the thread.
+        if (_isThreadBlocked(refreshed)) return;
+        _mergeChat(refreshed);
+        if (!isActive) _maybeBanner(refreshed);
+      }
+    } catch (_) {
+      // Ignore — a later sync or explicit refresh recovers.
+    }
   }
 
   /// Fires an in-app banner once when a non-open chat gains a new unread
@@ -450,7 +500,7 @@ class ChatNotifier extends Notifier<ChatState> {
     required String comment,
   }) async {
     final prompt = state.reviewPrompt;
-    if (prompt == null) return 'Запрос отзыва больше не доступен.';
+    if (prompt == null) return tr('Запрос отзыва больше не доступен.');
     try {
       await ref.read(supabaseServiceProvider).submitRideReview(
             rideId: prompt.rideId,
@@ -465,7 +515,7 @@ class ChatNotifier extends Notifier<ChatState> {
       );
       return null;
     } catch (e) {
-      return 'Не удалось отправить отзыв: $e';
+      return trf('Не удалось отправить отзыв: {error}', {'error': '$e'});
     }
   }
 
@@ -538,8 +588,10 @@ class ChatNotifier extends Notifier<ChatState> {
   String openChatForRequest(PassengerRequest request) {
     final route = normalizedChatRoute('${request.fromCity} - ${request.toCity}');
     final contextText = _contextText(route, request.departureText);
-    final initialDraft =
-        'Здравствуйте! Могу взять ваш запрос по маршруту $route.';
+    final initialDraft = trf(
+      'Здравствуйте! Могу взять ваш запрос по маршруту {route}.',
+      {'route': route},
+    );
     final now = DateTime.now();
 
     final existing = _findThread(
@@ -690,6 +742,71 @@ class ChatNotifier extends Notifier<ChatState> {
     return thread.id;
   }
 
+  /// Opens (or finds) the chat with [driver] and delivers the passenger's
+  /// free-text booking message so it actually reaches the driver (QA #19).
+  /// Returns the local thread id. The message is persisted directly via the
+  /// backend thread (ensureChatThread + sendChatMessage) rather than
+  /// [sendMessage], because the freshly-opened local thread has no backendId
+  /// yet and sendMessage would bail; mirrors [notifyBookingDecision].
+  Future<String> sendBookingMessageToDriver({
+    required UserProfile driver,
+    required String route,
+    required String message,
+    DateTime? departureDate,
+    String? rideId,
+  }) async {
+    final trimmed = message.trim();
+    // Open the thread so the conversation exists for both parties. When the
+    // passenger typed a message we deliver it ourselves (below), so the draft
+    // is left empty; when empty we seed a friendly opener as the draft.
+    final localThreadId = openChatWithDriver(
+      driver: driver,
+      route: route,
+      openingText: trimmed.isEmpty
+          ? trf('Здравствуйте! Забронировал(а) поездку {route}.',
+              {'route': normalizedChatRoute(route)})
+          : '',
+      departureDate: departureDate,
+      rideId: rideId,
+    );
+    if (trimmed.isEmpty) return localThreadId;
+
+    final participantId = driver.backendId;
+    if (participantId == null) return localThreadId;
+    final now = DateTime.now();
+    // Optimistically show the message in the local thread.
+    final thread = threadById(localThreadId);
+    if (thread != null) {
+      thread.messages = [
+        ...thread.messages,
+        ChatMessage(
+          text: trimmed,
+          isIncoming: false,
+          timeLabel: DateTextFormatter.time(now),
+          dayLabel: chatDayLabel(now),
+          deliveryStatus: ChatMessageDeliveryStatus.sending,
+        ),
+      ];
+      thread.preview = trimmed;
+      thread.timeLabel = DateTextFormatter.time(now);
+      _resort();
+    }
+    // Persist against the backend thread directly so it's delivered even though
+    // the optimistic local thread has no backendId yet.
+    try {
+      final backendThreadId = await _service.ensureChatThread(
+        route: normalizedChatRoute(route),
+        participantId: participantId,
+        rideId: rideId,
+      );
+      await _service.sendChatMessage(threadId: backendThreadId, text: trimmed);
+      if (_mounted) await loadChats();
+    } catch (_) {
+      // Best-effort; the optimistic local message stays visible.
+    }
+    return localThreadId;
+  }
+
   /// Creates (or restores) the backend thread for an optimistically-added local
   /// thread, then reloads so the merge logic adopts the real `backendId`.
   void _syncNewThread({
@@ -754,27 +871,117 @@ class ChatNotifier extends Notifier<ChatState> {
       setArchived(threadId, false);
     }
     final now = DateTime.now();
-    thread.messages = [
-      ...thread.messages,
-      ChatMessage(
-        text: trimmed,
-        isIncoming: false,
-        timeLabel: DateTextFormatter.time(now),
-        dayLabel: chatDayLabel(now),
-        deliveryStatus: ChatMessageDeliveryStatus.sent,
-      ),
-    ];
+    // Append optimistically as SENDING (clock), not sent — the tick only
+    // becomes a check once the server actually accepts the write.
+    final optimistic = ChatMessage(
+      text: trimmed,
+      isIncoming: false,
+      timeLabel: DateTextFormatter.time(now),
+      dayLabel: chatDayLabel(now),
+      deliveryStatus: ChatMessageDeliveryStatus.sending,
+    );
+    thread.messages = [...thread.messages, optimistic];
     thread.preview = trimmed;
     thread.timeLabel = DateTextFormatter.time(now);
     _resort();
+    await _deliverMessage(threadId, optimistic.id, trimmed);
+  }
 
-    final backendId = thread.backendId;
-    if (backendId == null) return;
+  /// Sends [text] for the optimistic message [messageId] in [localThreadId],
+  /// flipping it sending → sent on success, or → failed (queued in the outbox)
+  /// on error. Shared by the first send and by [retryMessage].
+  Future<void> _deliverMessage(
+    String localThreadId,
+    String messageId,
+    String text,
+  ) async {
+    final thread = threadById(localThreadId);
+    if (thread == null) return;
+    final wasNew = thread.backendId == null;
     try {
-      await _service.sendChatMessage(threadId: backendId, text: trimmed);
-      if (_mounted) await loadThread(threadId);
+      var backendId = thread.backendId;
+      if (backendId == null) {
+        // The thread is still being created (no backendId yet). Find-or-create
+        // the backend thread now so the message isn't dropped (QA #22).
+        final participantId = thread.participantBackendId;
+        if (participantId == null) {
+          _markMessageFailed(localThreadId, messageId, text);
+          return;
+        }
+        backendId = await _service.ensureChatThread(
+          route: normalizedChatRoute(thread.route),
+          participantId: participantId,
+          rideId: thread.rideId,
+          passengerRequestId: thread.passengerRequestId,
+        );
+      }
+      await _service.sendChatMessage(threadId: backendId, text: text);
+      _outbox.remove(messageId);
+      // Flip to SENT (one check); the refetch below then replaces the optimistic
+      // row with the authoritative server message (whose status is sent/read).
+      _setMessageStatus(localThreadId, messageId,
+          ChatMessageDeliveryStatus.sent);
+      if (_mounted) {
+        if (wasNew) {
+          await loadChats();
+        } else {
+          await loadThread(localThreadId);
+        }
+      }
     } catch (_) {
-      // The optimistic message stays visible even if the write failed.
+      // Offline / server error: mark FAILED and queue for retry instead of
+      // silently leaving it looking sent.
+      _markMessageFailed(localThreadId, messageId, text);
+    }
+  }
+
+  /// Flips an optimistic message in [localThreadId] to [status] in place, found
+  /// by its local id.
+  void _setMessageStatus(
+    String localThreadId,
+    String messageId,
+    ChatMessageDeliveryStatus status,
+  ) {
+    final thread = threadById(localThreadId);
+    if (thread == null) return;
+    final index = thread.messages.indexWhere((m) => m.id == messageId);
+    if (index < 0) return;
+    final messages = [...thread.messages];
+    messages[index] = messages[index].copyWith(deliveryStatus: status);
+    thread.messages = messages;
+    if (_mounted) _resort();
+  }
+
+  void _markMessageFailed(
+    String localThreadId,
+    String messageId,
+    String text,
+  ) {
+    _outbox[messageId] =
+        _OutgoingDraft(localThreadId: localThreadId, text: text);
+    _setMessageStatus(
+        localThreadId, messageId, ChatMessageDeliveryStatus.failed);
+  }
+
+  /// Retries one failed outgoing message (tap-to-retry on its error tick).
+  Future<void> retryMessage(String localThreadId, String messageId) async {
+    final draft = _outbox[messageId];
+    if (draft == null) return;
+    _setMessageStatus(
+        localThreadId, messageId, ChatMessageDeliveryStatus.sending);
+    await _deliverMessage(localThreadId, messageId, draft.text);
+  }
+
+  /// Resends every queued failed message — call on reconnect / app resume.
+  Future<void> flushOutbox() async {
+    if (_flushingOutbox || _outbox.isEmpty) return;
+    _flushingOutbox = true;
+    try {
+      for (final entry in _outbox.entries.toList()) {
+        await retryMessage(entry.value.localThreadId, entry.key);
+      }
+    } finally {
+      _flushingOutbox = false;
     }
   }
 
@@ -796,17 +1003,19 @@ class ChatNotifier extends Notifier<ChatState> {
     };
     const maxSize = 10 * 1024 * 1024;
     if (!allowed.contains(contentType)) {
-      return 'Можно отправлять только фотографии.';
+      return tr('Можно отправлять только фотографии.');
     }
-    if (data.isEmpty) return 'Не удалось подготовить фото.';
+    if (data.isEmpty) return tr('Не удалось подготовить фото.');
     if (data.length > maxSize) {
-      return 'Фото больше 10 МБ. Выберите файл поменьше.';
+      return tr('Фото больше 10 МБ. Выберите файл поменьше.');
     }
 
     final thread = threadById(threadId);
-    if (thread == null) return 'Чат больше недоступен.';
+    if (thread == null) return tr('Чат больше недоступен.');
     final backendId = thread.backendId;
-    if (backendId == null) return 'Чат ещё не синхронизирован, попробуйте позже.';
+    if (backendId == null) {
+      return tr('Чат ещё не синхронизирован, попробуйте позже.');
+    }
     // Sending from an archived chat moves it back to active (QA #65).
     if (thread.category == ChatCategory.archive) {
       setArchived(threadId, false);
@@ -822,18 +1031,16 @@ class ChatNotifier extends Notifier<ChatState> {
       );
 
       final now = DateTime.now();
-      thread.messages = [
-        ...thread.messages,
-        ChatMessage(
-          text: attachment.previewText,
-          isIncoming: false,
-          timeLabel: DateTextFormatter.time(now),
-          dayLabel: chatDayLabel(now),
-          kind: ChatMessageKind.attachment,
-          attachment: attachment,
-          deliveryStatus: ChatMessageDeliveryStatus.sent,
-        ),
-      ];
+      final optimistic = ChatMessage(
+        text: attachment.previewText,
+        isIncoming: false,
+        timeLabel: DateTextFormatter.time(now),
+        dayLabel: chatDayLabel(now),
+        kind: ChatMessageKind.attachment,
+        attachment: attachment,
+        deliveryStatus: ChatMessageDeliveryStatus.sending,
+      );
+      thread.messages = [...thread.messages, optimistic];
       thread.preview = attachment.previewText;
       thread.timeLabel = DateTextFormatter.time(now);
       _resort();
@@ -844,10 +1051,11 @@ class ChatNotifier extends Notifier<ChatState> {
         kind: ChatMessageKind.attachment,
         attachment: attachment,
       );
+      _setMessageStatus(threadId, optimistic.id, ChatMessageDeliveryStatus.sent);
       if (_mounted) await loadThread(threadId);
       return null;
     } catch (_) {
-      return 'Не удалось отправить вложение.';
+      return tr('Не удалось отправить вложение.');
     }
   }
 
@@ -946,10 +1154,27 @@ class ChatNotifier extends Notifier<ChatState> {
     }
   }
 
+  /// True when [thread] is tied to a trip that is still active (not completed
+  /// and not cancelled) — archiving/deleting such a chat is blocked (QA #68).
+  /// Link: ChatThread.rideId == BookedTrip.ride.backendId. Returns false when
+  /// there's no ride link or no matching loaded trip — never invents a lock.
+  bool isLockedByActiveTrip(ChatThread thread) {
+    final rideId = thread.rideId;
+    if (rideId == null) return false;
+    for (final trip in ref.read(bookedTripsProvider)) {
+      if (trip.ride.backendId != rideId) continue;
+      return !trip.isCompleted && !trip.isCancelled;
+    }
+    return false;
+  }
+
   /// Ported from `toggleArchive` — moves a thread in/out of the archive.
   void setArchived(String threadId, bool archived) {
     final thread = threadById(threadId);
     if (thread == null) return;
+    // Block archiving a chat whose trip is still active (QA #68); always allow
+    // un-archiving.
+    if (archived && isLockedByActiveTrip(thread)) return;
     thread.category = archived ? ChatCategory.archive : ChatCategory.active;
     state = state.copyWith(threads: [...state.threads]);
     final backendId = thread.backendId;
@@ -964,6 +1189,7 @@ class ChatNotifier extends Notifier<ChatState> {
   /// archiving, does not reappear in the archive on the next fetch (QA #68).
   void deleteThread(String threadId) {
     final thread = threadById(threadId);
+    if (thread != null && isLockedByActiveTrip(thread)) return;
     final backendId = thread?.backendId;
     if (backendId != null) {
       _service.setChatDeleted(backendId).ignore();

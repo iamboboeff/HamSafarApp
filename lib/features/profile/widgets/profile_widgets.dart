@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_dimens.dart';
 import '../../../theme/app_text.dart';
@@ -24,14 +25,8 @@ class SettingsGroupCard extends StatelessWidget {
         vertical: 8,
       ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            hs.cardBackground,
-            hs.cardBackground.withValues(alpha: 0.96),
-          ],
-        ),
+        // Flat gray card — no gradient.
+        color: hs.cardBackground,
         borderRadius: BorderRadius.circular(HSRadius.large),
         border: Border.all(color: hs.stroke),
         boxShadow: [
@@ -254,10 +249,10 @@ class GuestProfileHeaderCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'Войти в аккаунт',
-                          style: TextStyle(
+                          tr('Войти в аккаунт'),
+                          style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
                           ),
@@ -272,7 +267,7 @@ class GuestProfileHeaderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    'Сохраните поездки, историю поиска и доступ к сообщениям.',
+                    tr('Бронируйте поездки, публикуйте свои и общайтесь с попутчиками.'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: HSText.subheadline.copyWith(
@@ -314,6 +309,7 @@ class SimpleProfileInput extends StatelessWidget {
           decoration: BoxDecoration(
             color: hs.secondarySurface,
             borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: hs.stroke),
           ),
           child: child,
         ),

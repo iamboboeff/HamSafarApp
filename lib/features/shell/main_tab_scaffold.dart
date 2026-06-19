@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../models/app_tab.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
+import '../../widgets/hs_route.dart';
+import '../auth/auth_screen.dart';
 import '../chat/chat_list_screen.dart';
 import '../create_ride/create_ride_screen.dart';
 import '../home/home_screen.dart';
@@ -23,6 +26,20 @@ class MainTabScaffold extends ConsumerWidget {
     final selectedTab = ref.watch(selectedTabProvider);
     final tabs = AppTab.values;
     final currentIndex = tabs.indexOf(selectedTab);
+    // Every tab reserves the tab bar's space (the "barrier"), so no screen's
+    // bottom buttons/content can slide under the bar. The bar itself still
+    // renders translucent — `extendBody` is left at its default (false), which
+    // only controls whether the body paints behind the bar, not its opacity.
+    final tabStack = IndexedStack(
+      index: currentIndex,
+      children: const [
+        HomeScreen(),
+        MyTripsScreen(),
+        CreateRideScreen(),
+        ChatListScreen(),
+        ProfileScreen(),
+      ],
+    );
 
     // The shell is a single route (tabs are an IndexedStack, sub-flows like the
     // create wizard advance via state), so without this the Android system-back
@@ -37,26 +54,35 @@ class MainTabScaffold extends ConsumerWidget {
       },
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: IndexedStack(
-          index: currentIndex,
-          children: const [
-            HomeScreen(),
-            MyTripsScreen(),
-            CreateRideScreen(),
-            ChatListScreen(),
-            ProfileScreen(),
-          ],
-        ),
+        body: tabStack,
         bottomNavigationBar: _HSTabBar(
           currentIndex: currentIndex,
           tabs: tabs,
           onTap: (i) {
+            final tab = tabs[i];
+            // Guest gating (BlaBlaCar-style, QA #16): the create / trips / chat
+            // tabs require an account. Instead of switching, open the auth
+            // screen and leave the current tab as-is. Home + Profile stay open
+            // to guests (Profile has its own sign-in card).
+            // Create is NOT gated here: a guest opens the role picker, and the
+            // auth sheet is triggered only when they pick "Я водитель" /
+            // "Я пассажир" (see _selectRole in create_ride_screen.dart).
+            const gatedTabs = {AppTab.trips, AppTab.inbox};
+            if (gatedTabs.contains(tab) && !ref.read(isAuthenticatedProvider)) {
+              Navigator.of(context).push(
+                HSRoute<void>(
+                  builder: (_) => const AuthScreen(),
+                  fullscreenDialog: true,
+                ),
+              );
+              return;
+            }
             // Tapping "+" always opens a fresh create form (resets the wizard),
             // even if it's already the active tab.
-            if (tabs[i] == AppTab.create) {
+            if (tab == AppTab.create) {
               ref.read(createTabResetProvider.notifier).trigger();
             }
-            ref.read(selectedTabProvider.notifier).select(tabs[i]);
+            ref.read(selectedTabProvider.notifier).select(tab);
           },
         ),
       ),
@@ -103,7 +129,7 @@ class _HSTabBar extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         child: Container(
           decoration: BoxDecoration(
-            color: hs.cardBackground.withValues(alpha: 0.80),
+            color: hs.cardBackground.withValues(alpha: 0.72),
             border: Border(top: BorderSide(color: hs.stroke, width: 0.5)),
           ),
           child: Padding(
@@ -163,7 +189,9 @@ class _TabItem extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: isSelected ? hs.primary : hs.primary.withValues(alpha: 0.18),
+                color: isSelected
+                    ? hs.primary
+                    : hs.primary.withValues(alpha: 0.18),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -193,7 +221,7 @@ class _TabItem extends StatelessWidget {
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 color: color,
               ),
-              child: Text(tab.title),
+              child: Text(tr(tab.title)),
             ),
           ],
         ],

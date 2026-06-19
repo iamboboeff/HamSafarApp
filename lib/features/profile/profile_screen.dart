@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_backdrop.dart';
@@ -39,9 +40,12 @@ class ProfileScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Профиль',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+              Text(
+                tr('Профиль'),
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 18),
               if (isAuthenticated) ...[
@@ -76,21 +80,21 @@ class ProfileScreen extends ConsumerWidget {
                 SettingsGroupCard(
                   children: [
                     SettingsRow(
-                      title: 'Редактировать профиль',
+                      title: tr('Редактировать профиль'),
                       icon: Icons.badge_outlined,
                       accent: hs.primary,
                       onTap: () => _push(context, const EditProfileScreen()),
                     ),
                     const SettingsDivider(),
                     SettingsRow(
-                      title: 'Автомобиль',
+                      title: tr('Автомобиль'),
                       icon: Icons.directions_car_outlined,
                       accent: hs.warm,
                       onTap: () => _push(context, const CarSettingsScreen()),
                     ),
                     const SettingsDivider(),
                     SettingsRow(
-                      title: 'Оповещения о поездках',
+                      title: tr('Оповещения о поездках'),
                       icon: Icons.notifications_active_outlined,
                       accent: hs.passenger,
                       onTap: () => _push(context, const RideAlertsScreen()),
@@ -110,7 +114,7 @@ class ProfileScreen extends ConsumerWidget {
               SettingsGroupCard(
                 children: [
                   SettingsRow(
-                    title: 'Уведомления',
+                    title: tr('Уведомления'),
                     icon: Icons.notifications_none,
                     accent: hs.passenger,
                     onTap: () =>
@@ -118,7 +122,7 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SettingsDivider(),
                   SettingsRow(
-                    title: 'Язык и тема',
+                    title: tr('Язык и тема'),
                     icon: Icons.language,
                     accent: hs.mint,
                     onTap: () =>
@@ -129,7 +133,7 @@ class ProfileScreen extends ConsumerWidget {
                   if (isAuthenticated) ...[
                     const SettingsDivider(),
                     SettingsRow(
-                      title: 'Приватность и безопасность',
+                      title: tr('Приватность и безопасность'),
                       icon: Icons.lock_outline,
                       accent: hs.warm,
                       onTap: () =>
@@ -142,7 +146,7 @@ class ProfileScreen extends ConsumerWidget {
               SettingsGroupCard(
                 children: [
                   SettingsRow(
-                    title: 'Пассажирам',
+                    title: tr('Пассажирам'),
                     icon: Icons.people_outline,
                     accent: hs.passenger,
                     onTap: () =>
@@ -150,7 +154,7 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SettingsDivider(),
                   SettingsRow(
-                    title: 'Водителям',
+                    title: tr('Водителям'),
                     icon: Icons.airline_seat_recline_normal,
                     accent: hs.primary,
                     onTap: () =>
@@ -158,26 +162,28 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SettingsDivider(),
                   SettingsRow(
-                    title: 'Написать в поддержку',
+                    title: tr('Написать в поддержку'),
                     icon: Icons.support_agent,
                     accent: hs.warm,
                     onTap: () => _push(
                       context,
-                      const FeedbackFormScreen(
-                        appBarTitle: 'Поддержка',
-                        cardTitle: 'Свяжитесь с поддержкой',
-                        cardSubtitle:
-                            'Опишите проблему, и мы отправим обращение в '
-                            'поддержку.',
+                      FeedbackFormScreen(
+                        appBarTitle: tr('Поддержка'),
+                        cardTitle: tr('Свяжитесь с поддержкой'),
+                        cardSubtitle: tr(
+                          'Опишите проблему, и мы отправим обращение в '
+                          'поддержку.',
+                        ),
                         fieldHint:
-                            'Опишите проблему, чтобы мы быстрее помогли.',
-                        submitLabel: 'Отправить в поддержку',
-                        successTitle: 'Обращение отправлено',
-                        successMessage:
-                            'Мы получили ваше обращение. Ответ придёт на '
-                            'вашу почту.',
+                            tr('Опишите проблему, чтобы мы быстрее помогли.'),
+                        submitLabel: tr('Отправить в поддержку'),
+                        successTitle: tr('Обращение отправлено'),
+                        successMessage: tr(
+                          'Мы получили ваше обращение. Ответ придёт на '
+                          'вашу почту.',
+                        ),
                         kind: FeedbackKind.support,
-                        topics: [
+                        topics: const [
                           'Бронирование',
                           'Платёж',
                           'Чат',
@@ -189,23 +195,26 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SettingsDivider(),
                   SettingsRow(
-                    title: 'Предложить идею',
+                    title: tr('Предложить идею'),
                     icon: Icons.lightbulb_outline,
                     accent: hs.mint,
                     onTap: () => _push(
                       context,
-                      const FeedbackFormScreen(
-                        appBarTitle: 'Предложить идею',
-                        cardTitle: 'Поделитесь идеей',
-                        cardSubtitle:
-                            'Ваши предложения помогают улучшать поиск, '
-                            'публикацию поездок и общение.',
-                        fieldHint:
-                            'Опишите идею: что улучшить и как это должно '
-                            'работать.',
-                        submitLabel: 'Отправить идею',
-                        successTitle: 'Спасибо',
-                        successMessage: 'Идея отправлена продуктовой команде.',
+                      FeedbackFormScreen(
+                        appBarTitle: tr('Предложить идею'),
+                        cardTitle: tr('Поделитесь идеей'),
+                        cardSubtitle: tr(
+                          'Ваши предложения помогают улучшать поиск, '
+                          'публикацию поездок и общение.',
+                        ),
+                        fieldHint: tr(
+                          'Опишите идею: что улучшить и как это должно '
+                          'работать.',
+                        ),
+                        submitLabel: tr('Отправить идею'),
+                        successTitle: tr('Спасибо'),
+                        successMessage:
+                            tr('Идея отправлена продуктовой команде.'),
                         kind: FeedbackKind.idea,
                       ),
                     ),
@@ -216,21 +225,21 @@ class ProfileScreen extends ConsumerWidget {
               SettingsGroupCard(
                 children: [
                   SettingsRow(
-                    title: 'Пользовательское соглашение',
+                    title: tr('Пользовательское соглашение'),
                     icon: Icons.description_outlined,
                     accent: hs.purple,
                     onTap: () => _push(context, LegalDocumentScreen.terms()),
                   ),
                   const SettingsDivider(),
                   SettingsRow(
-                    title: 'Политика конфиденциальности',
+                    title: tr('Политика конфиденциальности'),
                     icon: Icons.shield_outlined,
                     accent: hs.warm,
                     onTap: () => _push(context, LegalDocumentScreen.privacy()),
                   ),
                   const SettingsDivider(),
                   SettingsRow(
-                    title: 'Контакты',
+                    title: tr('Контакты'),
                     icon: Icons.phone_outlined,
                     accent: hs.primary,
                     onTap: () => _push(context, const ContactsScreen()),
@@ -240,12 +249,12 @@ class ProfileScreen extends ConsumerWidget {
               if (isAuthenticated) ...[
                 const SizedBox(height: 18),
                 DestructiveOutlineButton(
-                  label: 'Удалить аккаунт',
+                  label: tr('Удалить аккаунт'),
                   onPressed: () => _push(context, const DeleteAccountScreen()),
                 ),
                 const SizedBox(height: 12),
                 DestructiveOutlineButton(
-                  label: 'Выйти из профиля',
+                  label: tr('Выйти из профиля'),
                   onPressed: () => _confirmLogout(context, ref),
                 ),
               ],
@@ -260,16 +269,16 @@ class ProfileScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Выйти из профиля?'),
-        content: const Text('Вы сможете войти снова в любой момент.'),
+        title: Text(tr('Выйти из профиля?')),
+        content: Text(tr('Вы сможете войти снова в любой момент.')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
+            child: Text(tr('Отмена')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Выйти'),
+            child: Text(tr('Выйти')),
           ),
         ],
       ),

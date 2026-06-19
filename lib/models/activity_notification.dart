@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 
 /// Ported from `ActivityNotification` in `Models.swift` — one row of the
@@ -28,7 +30,7 @@ class ActivityNotification {
   /// `Вчера`, otherwise `D месяц`.
   String get timeText {
     if (DateUtilsX.isToday(time)) return DateTextFormatter.time(time);
-    if (DateUtilsX.isYesterday(time)) return 'Вчера';
+    if (DateUtilsX.isYesterday(time)) return tr('Вчера');
     return DateTextFormatter.dayMonthShort(time);
   }
 

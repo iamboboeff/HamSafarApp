@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 /// Best-effort detection of "we're offline / can't reach the backend" errors.
 ///
 /// The app has no connectivity plugin, so we infer it from the failures the
@@ -37,5 +39,5 @@ bool isOfflineError(Object error) {
 }
 
 /// Standard user-facing message for offline failures.
-const String offlineMessage =
-    'Нет подключения к интернету. Проверьте соединение и попробуйте снова.';
+String get offlineMessage => tr(
+    'Нет подключения к интернету. Проверьте соединение и попробуйте снова.');

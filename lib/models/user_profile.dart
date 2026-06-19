@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 import 'residence_country.dart';
 
@@ -10,8 +12,8 @@ enum ProfileGender {
   female;
 
   String get title => switch (this) {
-    ProfileGender.male => 'Мужчина',
-    ProfileGender.female => 'Женщина',
+    ProfileGender.male => tr('Мужчина'),
+    ProfileGender.female => tr('Женщина'),
   };
 }
 
@@ -140,6 +142,24 @@ class UserProfile {
   /// new users don't appear to have a perfect 5.0 (QA #20).
   String get ratingText => hasRating ? rating.toStringAsFixed(1) : '—';
 
+  /// Russian-pluralised review count, e.g. "1 отзыв" / "3 отзыва" /
+  /// "5 отзывов". Based on the real [ratingCount].
+  String get reviewsLabel {
+    final mod100 = ratingCount % 100;
+    final mod10 = ratingCount % 10;
+    final String template;
+    if (mod100 >= 11 && mod100 <= 14) {
+      template = '{n} отзывов';
+    } else if (mod10 == 1) {
+      template = '{n} отзыв';
+    } else if (mod10 >= 2 && mod10 <= 4) {
+      template = '{n} отзыва';
+    } else {
+      template = '{n} отзывов';
+    }
+    return trf(template, {'n': '$ratingCount'});
+  }
+
   int? get age {
     final birth = birthDate;
     if (birth == null) return null;
@@ -155,25 +175,25 @@ class UserProfile {
   String _localizedYears(int years) {
     final tens = years % 10;
     final hundreds = years % 100;
-    if (tens == 1 && hundreds != 11) return '$years год';
+    if (tens == 1 && hundreds != 11) return trf('{n} год', {'n': '$years'});
     if (tens >= 2 && tens <= 4 && !(hundreds >= 12 && hundreds <= 14)) {
-      return '$years года';
+      return trf('{n} года', {'n': '$years'});
     }
-    return '$years лет';
+    return trf('{n} лет', {'n': '$years'});
   }
 
   String get identityLine {
-    final genderText = gender?.title ?? 'Пол не указан';
+    final genderText = gender?.title ?? tr('Пол не указан');
     final ageValue = age;
     final ageText = ageValue == null
-        ? 'возраст не указан'
+        ? tr('возраст не указан')
         : _localizedYears(ageValue);
     return '$genderText, $ageText';
   }
 
   String get joinedDateText {
     final registered = registeredAt;
-    if (registered == null) return 'Нет данных';
+    if (registered == null) return tr('Нет данных');
     return DateTextFormatter.monthYear(registered);
   }
 }

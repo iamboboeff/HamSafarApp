@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../../../models/app_tab.dart';
 import '../../../theme/app_colors.dart';
 
@@ -30,8 +32,8 @@ class RoleSelectionView extends StatelessWidget {
         Expanded(
           child: _RoleCard(
             mode: TravelMode.driver,
-            title: 'Я водитель',
-            subtitle: 'У меня есть свободные места',
+            title: tr('Я водитель'),
+            subtitle: tr('У меня есть свободные места'),
             asset: 'assets/images/create_driver.png',
             onTap: () => onSelectRole(TravelMode.driver),
           ),
@@ -40,8 +42,8 @@ class RoleSelectionView extends StatelessWidget {
         Expanded(
           child: _RoleCard(
             mode: TravelMode.passenger,
-            title: 'Я пассажир',
-            subtitle: 'Ищу попутную машину',
+            title: tr('Я пассажир'),
+            subtitle: tr('Ищу попутную машину'),
             asset: 'assets/images/create_passenger.png',
             onTap: () => onSelectRole(TravelMode.passenger),
           ),

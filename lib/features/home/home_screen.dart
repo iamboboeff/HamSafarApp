@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../core/net_status.dart';
 import '../../domain/home_flow.dart';
 import '../../models/app_tab.dart';
@@ -52,16 +53,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Нет доступа к интернету'),
+          title: Text(tr('Нет доступа к интернету')),
           content: Text(
             isOfflineError(error)
                 ? offlineMessage
-                : 'Не удалось загрузить поездки. Попробуйте ещё раз.',
+                : tr('Не удалось загрузить поездки. Попробуйте ещё раз.'),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Ок'),
+              child: Text(tr('Ок')),
             ),
           ],
         ),

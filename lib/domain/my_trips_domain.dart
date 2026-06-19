@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../models/booked_trip.dart';
 import '../models/passenger_request.dart';
 import '../models/ride.dart';
@@ -66,19 +68,19 @@ abstract final class MyTripsDomain {
     return items;
   }
 
-  static String emptyStateTitle(TripSection section) => switch (section) {
+  static String emptyStateTitle(TripSection section) => tr(switch (section) {
     TripSection.active => 'Активных поездок пока нет',
     TripSection.requests => 'Запросов пока нет',
     TripSection.history => 'История поездок пока пуста',
-  };
+  });
 
-  static String emptyStateSubtitle(TripSection section) => switch (section) {
+  static String emptyStateSubtitle(TripSection section) => tr(switch (section) {
     TripSection.active => 'Создайте новую поездку, и она появится здесь.',
     TripSection.requests =>
       'Ваши запросы пассажира и отправленные брони появятся здесь.',
     TripSection.history =>
       'Завершённые поездки и старые запросы появятся здесь позже.',
-  };
+  });
 
   static int matchingRideCountForTrip({
     required BookedTrip trip,

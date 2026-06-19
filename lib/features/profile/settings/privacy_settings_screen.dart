@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/l10n.dart';
 import '../../../core/net_status.dart';
 import '../../../core/supabase/supabase_service.dart';
 import '../../../state/app_state.dart';
@@ -52,25 +53,25 @@ class _PrivacySettingsScreenState
 
     if (email.isEmpty) {
       setState(() {
-        _passwordErrorMessage = 'Для смены пароля нужен email аккаунта.';
+        _passwordErrorMessage = tr('Для смены пароля нужен email аккаунта.');
       });
       return;
     }
     if (_currentPassword.text.isEmpty) {
       setState(() {
-        _passwordErrorMessage = 'Введите текущий пароль.';
+        _passwordErrorMessage = tr('Введите текущий пароль.');
       });
       return;
     }
     if (_newPassword.text.length < 6) {
       setState(() {
-        _passwordErrorMessage = 'Пароль должен быть минимум 6 символов.';
+        _passwordErrorMessage = tr('Пароль должен быть минимум 6 символов.');
       });
       return;
     }
     if (_newPassword.text != _confirmNewPassword.text) {
       setState(() {
-        _passwordErrorMessage = 'Пароли не совпадают.';
+        _passwordErrorMessage = tr('Пароли не совпадают.');
       });
       return;
     }
@@ -92,7 +93,7 @@ class _PrivacySettingsScreenState
       setState(() {
         _isUpdatingPassword = false;
         _passwordErrorMessage =
-            isOfflineError(e) ? offlineMessage : 'Неверный текущий пароль.';
+            isOfflineError(e) ? offlineMessage : tr('Неверный текущий пароль.');
       });
       return;
     }
@@ -105,7 +106,7 @@ class _PrivacySettingsScreenState
       _confirmNewPassword.clear();
       setState(() {
         _isUpdatingPassword = false;
-        _passwordStatusMessage = 'Пароль обновлён.';
+        _passwordStatusMessage = tr('Пароль обновлён.');
       });
     } on SupabaseServiceError catch (e) {
       if (!mounted) return;
@@ -119,7 +120,7 @@ class _PrivacySettingsScreenState
         _isUpdatingPassword = false;
         _passwordErrorMessage = isOfflineError(e)
             ? offlineMessage
-            : 'Не удалось обновить пароль. Попробуйте ещё раз.';
+            : tr('Не удалось обновить пароль. Попробуйте ещё раз.');
       });
     }
   }
@@ -130,7 +131,7 @@ class _PrivacySettingsScreenState
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Приватность')),
+      appBar: AppBar(title: Text(tr('Приватность'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -147,9 +148,10 @@ class _PrivacySettingsScreenState
                 SettingsGroupCard(
                   children: [
                     ToggleRow(
-                      title: 'Публичный профиль',
-                      subtitle:
-                          'Водители и пассажиры смогут открыть ваш профиль',
+                      title: tr('Публичный профиль'),
+                      subtitle: tr(
+                        'Водители и пассажиры смогут открыть ваш профиль',
+                      ),
                       value: settings.allowPublicProfile,
                       onChanged: (v) => ref
                           .read(sessionProvider.notifier)
@@ -161,7 +163,7 @@ class _PrivacySettingsScreenState
                 SettingsGroupCard(
                   children: [
                     SettingsRow(
-                      title: 'Заблокированные пользователи',
+                      title: tr('Заблокированные пользователи'),
                       icon: Icons.block,
                       accent: context.hs.warm,
                       onTap: () => Navigator.of(context).push(
@@ -178,24 +180,24 @@ class _PrivacySettingsScreenState
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Смена пароля', style: HSText.headline),
+                        Text(tr('Смена пароля'), style: HSText.headline),
                         const SizedBox(height: 14),
                         AuthField(
-                          title: 'Текущий пароль',
+                          title: tr('Текущий пароль'),
                           controller: _currentPassword,
                           icon: Icons.lock_outline,
                           isSecure: true,
                         ),
                         const SizedBox(height: 12),
                         AuthField(
-                          title: 'Новый пароль',
+                          title: tr('Новый пароль'),
                           controller: _newPassword,
                           icon: Icons.lock_outline,
                           isSecure: true,
                         ),
                         const SizedBox(height: 12),
                         AuthField(
-                          title: 'Повторите новый пароль',
+                          title: tr('Повторите новый пароль'),
                           controller: _confirmNewPassword,
                           icon: Icons.lock_reset,
                           isSecure: true,
@@ -220,7 +222,7 @@ class _PrivacySettingsScreenState
                         ],
                         const SizedBox(height: 14),
                         PrimaryFilledButton(
-                          label: 'Обновить пароль',
+                          label: tr('Обновить пароль'),
                           isLoading: _isUpdatingPassword,
                           onPressed:
                               _isUpdatingPassword ? null : _updatePassword,

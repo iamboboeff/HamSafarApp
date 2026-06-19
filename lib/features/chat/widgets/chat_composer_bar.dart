@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../../../theme/app_colors.dart';
 
 /// Ported from `ChatComposerBar` + `AttachmentMenuButton` in
@@ -53,7 +55,7 @@ class ChatComposerBar extends StatelessWidget {
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
-                  hintText: 'Введите сообщение',
+                  hintText: tr('Введите сообщение'),
                   filled: true,
                   fillColor: hs.secondarySurface,
                   isDense: true,

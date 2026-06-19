@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../domain/date_formatter.dart';
 import '../../domain/search_date_options.dart';
@@ -11,16 +12,18 @@ import '../../models/ride.dart';
 import '../../models/ride_alert.dart';
 import '../../state/app_state.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_dimens.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/passenger_request_card.dart';
 import '../../widgets/ride_card.dart';
 import '../auth/auth_screen.dart';
+import '../home/widgets/date_picker_sheet.dart';
+import '../home/widgets/search_card.dart' show showPassengersPickerSheet;
 import '../ride_detail/passenger_request_detail_screen.dart';
 import '../ride_detail/ride_detail_screen.dart';
 import 'widgets/search_filter_bar.dart';
 import 'widgets/search_mode_tabs.dart';
-import 'widgets/search_overlays.dart';
 import 'widgets/search_route_summary.dart';
 
 /// A day-grouped bucket of search results.
@@ -53,14 +56,44 @@ class SearchResultsScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
-  bool _showDatePicker = false;
-  bool _showFilters = false;
-  bool _isDateFilterActive = false;
+  // Collapsing-banner extents; the fold consumes the first
+  // (_bannerMaxExtent - _bannerMinExtent) px of scroll.
+  static const double _bannerMaxExtent = 250;
+  static const double _bannerMinExtent = 74;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // When a scroll settles with the banner folded part-way, snap it fully open
+  // or fully closed (whichever edge is nearer).
+  bool _snapHeader(ScrollEndNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    const range = _bannerMaxExtent - _bannerMinExtent;
+    final offset = notification.metrics.pixels;
+    if (offset > 0 && offset < range) {
+      final target = offset < range / 2 ? 0.0 : range;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.animateTo(
+            target,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(homeSearchProvider);
     final search = searchState.search;
+    final hasSelectedDate = searchState.hasSelectedDate;
     final marketplace = ref.watch(marketplaceProvider);
     final bookedTrips = ref.watch(bookedTripsProvider);
     final isCurrentUser = ref.watch(isCurrentUserProvider);
@@ -96,7 +129,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
         if (aSoldOut != bSoldOut) return aSoldOut ? 1 : -1;
         return a.departureDate.compareTo(b.departureDate);
       });
-    final filteredRides = _isDateFilterActive
+    final filteredRides = hasSelectedDate
         ? displayedRides
               .where((r) => DateUtilsX.isSameDay(r.departureDate, search.date))
               .toList()
@@ -104,7 +137,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
     final displayedRequests = [...passengerMatches]
       ..sort((a, b) => a.departureDate.compareTo(b.departureDate));
-    final filteredRequests = _isDateFilterActive
+    final filteredRequests = hasSelectedDate
         ? displayedRequests
               .where((r) => DateUtilsX.isSameDay(r.departureDate, search.date))
               .toList()
@@ -116,12 +149,12 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     final dateOptions = groupedDateOptions(
       dates: dateSourceDates,
       selectedDate: search.date,
-      includeSelectedDateIfMissing: _isDateFilterActive,
+      includeSelectedDateIfMissing: hasSelectedDate,
     );
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Поиск')),
+      appBar: AppBar(title: Text(tr('Поиск'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -136,56 +169,114 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                       .select(value),
                 ),
               ),
-              // Route + date are a FIXED header — the pull-to-refresh spinner
-              // appears below this, with the results, not over the city/date
-              // block.
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SearchRouteSummary(),
-                    const SizedBox(height: 12),
-                    SearchFilterBar(
-                      dateOptions: dateOptions,
-                      isAllDatesSelected: !_isDateFilterActive,
-                      selectedDate: search.date,
-                      showsFilterButton: false,
-                      onOpenCalendar: () =>
-                          setState(() => _showDatePicker = true),
-                      onSelectDateOption: (option) {
-                        setState(() {
-                          if (option.isAllDates) {
-                            _isDateFilterActive = false;
-                          } else {
-                            ref
-                                .read(homeSearchProvider.notifier)
-                                .setDate(option.date);
-                            _isDateFilterActive = true;
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                ),
-              ),
               Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () =>
-                      ref.read(marketplaceProvider.notifier).refresh(),
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(
-                      parent: ClampingScrollPhysics(),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (section == HomeListingSection.rides)
-                          ..._buildRideResults(filteredRides)
-                        else
-                          ..._buildRequestResults(filteredRequests),
+                child: NotificationListener<ScrollEndNotification>(
+                  onNotification: _snapHeader,
+                  child: RefreshIndicator(
+                    onRefresh: () =>
+                        ref.read(marketplaceProvider.notifier).refresh(),
+                    child: CustomScrollView(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: ClampingScrollPhysics(),
+                      ),
+                      slivers: [
+                        // Collapsing route banner. It IS a scroll header, so its
+                        // height tracks the drag 1:1 — it folds under the finger
+                        // as you scroll down and unfolds as you scroll back up.
+                        // Pinned, so the compact route bar stays when fully
+                        // folded; tapping it scrolls back to the top to reopen.
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _RouteBannerDelegate(
+                            maxExtent: _bannerMaxExtent,
+                            minExtent: _bannerMinExtent,
+                            expanded: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                14,
+                                20,
+                                12,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SearchRouteSummary(
+                                    onTapDate: () async {
+                                      final notifier = ref.read(
+                                        homeSearchProvider.notifier,
+                                      );
+                                      final result = await showDatePickerSheet(
+                                        context,
+                                        initialDate: search.date,
+                                      );
+                                      // setDate flips hasSelectedDate → results
+                                      // filter to the picked day.
+                                      if (result != null) {
+                                        notifier.setDate(result);
+                                      }
+                                    },
+                                    onTapPassengers: () async {
+                                      final notifier = ref.read(
+                                        homeSearchProvider.notifier,
+                                      );
+                                      final result =
+                                          await showPassengersPickerSheet(
+                                            context,
+                                            initialCount: search.passengers,
+                                          );
+                                      if (result != null) {
+                                        notifier.setPassengers(result);
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SearchFilterBar(
+                                    dateOptions: dateOptions,
+                                    isAllDatesSelected: !hasSelectedDate,
+                                    selectedDate: search.date,
+                                    onSelectDateOption: (option) {
+                                      final notifier = ref.read(
+                                        homeSearchProvider.notifier,
+                                      );
+                                      if (option.isAllDates) {
+                                        notifier.clearDate();
+                                      } else {
+                                        notifier.setDate(option.date);
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            collapsed: Padding(
+                              // Same top gap as the expanded card so the folded
+                              // bar isn't crowded against the tab underline.
+                              padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                              child: _CollapsedRouteBar(
+                                from: from ?? tr('Откуда'),
+                                to: to ?? tr('Куда'),
+                                onTap: () => _scrollController.animateTo(
+                                  0,
+                                  duration: const Duration(milliseconds: 280),
+                                  curve: Curves.easeOut,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                          sliver: SliverList(
+                            delegate: SliverChildListDelegate([
+                              if (section == HomeListingSection.rides)
+                                ..._buildRideResults(filteredRides)
+                              else
+                                ..._buildRequestResults(filteredRequests),
+                            ]),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -193,31 +284,6 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
               ),
             ],
           ),
-          if (_showDatePicker)
-            TopOverlayScrim(
-              onDismiss: () => setState(() => _showDatePicker = false),
-              child: SearchCalendarOverlay(
-                initialDate: search.date,
-                onConfirm: (date) {
-                  ref.read(homeSearchProvider.notifier).setDate(date);
-                  setState(() {
-                    _isDateFilterActive = true;
-                    _showDatePicker = false;
-                  });
-                },
-                onClose: () => setState(() => _showDatePicker = false),
-              ),
-            ),
-          if (_showFilters)
-            TopOverlayScrim(
-              onDismiss: () => setState(() => _showFilters = false),
-              child: SearchFiltersOverlay(
-                passengers: search.passengers,
-                onChanged: (value) =>
-                    ref.read(homeSearchProvider.notifier).setPassengers(value),
-                onClose: () => setState(() => _showFilters = false),
-              ),
-            ),
         ],
       ),
     );
@@ -229,7 +295,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
       final from = search.fromLocation?.city.name;
       final to = search.toLocation?.city.name;
       return [
-        _emptyText('По этому маршруту пока нет доступных поездок.'),
+        _emptyText(tr('По этому маршруту пока нет доступных поездок.')),
         if (from != null && to != null) ...[
           const SizedBox(height: 16),
           _RideAlertCard(fromCity: from, toCity: to),
@@ -239,18 +305,13 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     final groups = _groupByDay(rides, (r) => r.departureDate);
     return [
       for (final group in groups) ...[
-        _DaySectionHeader(
-          date: group.date,
-          onOpenFilters: () => setState(() => _showFilters = true),
-        ),
+        _DaySectionHeader(date: group.date),
         for (final ride in group.items) ...[
           RideCard(
             ride: ride,
-            onTap: () => Navigator.of(context).push(
-              HSRoute<void>(
-                builder: (_) => RideDetailScreen(ride: ride),
-              ),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(HSRoute<void>(builder: (_) => RideDetailScreen(ride: ride))),
           ),
           const SizedBox(height: 12),
         ],
@@ -260,15 +321,12 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
   List<Widget> _buildRequestResults(List<PassengerRequest> requests) {
     if (requests.isEmpty) {
-      return [_emptyText('По этому маршруту пока нет запросов пассажиров.')];
+      return [_emptyText(tr('По этому маршруту пока нет запросов пассажиров.'))];
     }
     final groups = _groupByDay(requests, (r) => r.departureDate);
     return [
       for (final group in groups) ...[
-        _DaySectionHeader(
-          date: group.date,
-          onOpenFilters: () => setState(() => _showFilters = true),
-        ),
+        _DaySectionHeader(date: group.date),
         for (final request in group.items) ...[
           PassengerRequestCard(
             request: request,
@@ -296,34 +354,145 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 }
 
 /// Ported from `SearchResultsDaySectionHeader` in `SearchResultsViews.swift`.
+/// Scroll-linked collapsing header. Lays the full banner and the compact bar
+/// at the top of a fixed [maxExtent] box and cross-fades between them as the
+/// header shrinks — so the fold tracks the scroll offset (and the finger) 1:1.
+class _RouteBannerDelegate extends SliverPersistentHeaderDelegate {
+  _RouteBannerDelegate({
+    required this.expanded,
+    required this.collapsed,
+    required this.maxExtent,
+    required this.minExtent,
+  });
+
+  final Widget expanded;
+  final Widget collapsed;
+
+  @override
+  final double maxExtent;
+
+  @override
+  final double minExtent;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    final range = maxExtent - minExtent;
+    final t = range <= 0 ? 0.0 : (shrinkOffset / range).clamp(0.0, 1.0);
+    return ClipRect(
+      child: SizedBox(
+        height: maxExtent,
+        // Flat opaque base matching the page background, so results scroll
+        // cleanly UNDER the pinned header.
+        child: ColoredBox(
+          color: context.hs.background,
+          child: Stack(
+            children: [
+              // Full banner — fades out over the first ~70% of the fold.
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  ignoring: t > 0.5,
+                  child: Opacity(
+                    opacity: (1 - t / 0.7).clamp(0.0, 1.0),
+                    child: expanded,
+                  ),
+                ),
+              ),
+              // Compact bar — fades in over the last ~45%.
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  ignoring: t < 0.55,
+                  child: Opacity(
+                    opacity: ((t - 0.55) / 0.45).clamp(0.0, 1.0),
+                    child: collapsed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _RouteBannerDelegate oldDelegate) => true;
+}
+
+/// Compact route bar shown when the banner is collapsed. Tapping it expands
+/// the full editable route card again.
+class _CollapsedRouteBar extends StatelessWidget {
+  const _CollapsedRouteBar({
+    required this.from,
+    required this.to,
+    required this.onTap,
+  });
+
+  final String from;
+  final String to;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hs = context.hs;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        decoration: BoxDecoration(
+          color: hs.cardBackground,
+          borderRadius: BorderRadius.circular(HSRadius.large),
+          border: Border.all(color: hs.stroke),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.alt_route, size: 16, color: hs.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$from → $to',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: HSText.subheadlineSemibold,
+              ),
+            ),
+            Icon(
+              Icons.keyboard_arrow_down,
+              size: 20,
+              color: context.secondaryText,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DaySectionHeader extends StatelessWidget {
-  const _DaySectionHeader({required this.date, required this.onOpenFilters});
+  const _DaySectionHeader({required this.date});
 
   final DateTime date;
-  final VoidCallback onOpenFilters;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(2, 1, 2, 11),
-      child: Row(
-        children: [
-          Text(
-            DateTextFormatter.resultsSectionTitle(date),
-            style: HSText.subheadlineSemibold.copyWith(
-              color: context.secondaryText,
-            ),
-          ),
-          const Spacer(),
-          GestureDetector(
-            onTap: onOpenFilters,
-            child: const SizedBox(
-              width: 28,
-              height: 28,
-              child: Icon(Icons.tune, size: 18),
-            ),
-          ),
-        ],
+      child: Text(
+        DateTextFormatter.resultsSectionTitle(date),
+        style: HSText.subheadlineSemibold.copyWith(
+          color: context.secondaryText,
+        ),
       ),
     );
   }
@@ -374,8 +543,8 @@ class _RideAlertCard extends ConsumerWidget {
               Expanded(
                 child: Text(
                   subscribed
-                      ? 'Оповещение включено'
-                      : 'Сообщить, когда появится поездка',
+                      ? tr('Оповещение включено')
+                      : tr('Сообщить, когда появится поездка'),
                   style: HSText.subheadlineSemibold,
                 ),
               ),
@@ -384,16 +553,22 @@ class _RideAlertCard extends ConsumerWidget {
           const SizedBox(height: 6),
           Text(
             subscribed
-                ? 'Пришлём пуш, как только кто-то опубликует поездку '
-                    '$fromCity → $toCity.'
-                : 'Подпишитесь на маршрут $fromCity → $toCity — пришлём '
+                ? trf(
+                    'Пришлём пуш, как только кто-то опубликует поездку '
+                    '{from} → {to}.',
+                    {'from': fromCity, 'to': toCity},
+                  )
+                : trf(
+                    'Подпишитесь на маршрут {from} → {to} — пришлём '
                     'уведомление, как только появится поездка.',
+                    {'from': fromCity, 'to': toCity},
+                  ),
             style: HSText.subheadline.copyWith(color: context.secondaryText),
           ),
           const SizedBox(height: 14),
           if (!isAuth) ...[
             PrimaryFilledButton(
-              label: 'Создать оповещение',
+              label: tr('Создать оповещение'),
               onPressed: () => _promptLogin(context),
             ),
             const SizedBox(height: 8),
@@ -408,7 +583,7 @@ class _RideAlertCard extends ConsumerWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Войдите в аккаунт, чтобы подписаться на оповещения.',
+                    tr('Войдите в аккаунт, чтобы подписаться на оповещения.'),
                     style: HSText.caption.copyWith(
                       color: context.secondaryText,
                     ),
@@ -418,12 +593,12 @@ class _RideAlertCard extends ConsumerWidget {
             ),
           ] else if (subscribed)
             DestructiveOutlineButton(
-              label: 'Отключить оповещение',
+              label: tr('Отключить оповещение'),
               onPressed: () => _remove(context, ref, existing!.id),
             )
           else
             PrimaryFilledButton(
-              label: 'Создать оповещение',
+              label: tr('Создать оповещение'),
               onPressed: () => _create(context, ref),
             ),
         ],
@@ -437,19 +612,21 @@ class _RideAlertCard extends ConsumerWidget {
     final goToLogin = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Нужен вход'),
-        content: const Text(
-          'Чтобы подписаться на оповещения о поездках по этому маршруту, '
-          'сначала войдите в аккаунт.',
+        title: Text(tr('Нужен вход')),
+        content: Text(
+          tr(
+            'Чтобы подписаться на оповещения о поездках по этому маршруту, '
+            'сначала войдите в аккаунт.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
+            child: Text(tr('Отмена')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Войти'),
+            child: Text(tr('Войти')),
           ),
         ],
       ),
@@ -469,13 +646,15 @@ class _RideAlertCard extends ConsumerWidget {
     try {
       await ref.read(rideAlertsProvider.notifier).create(fromCity, toCity);
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Оповещение создано — пришлём пуш по этому маршруту.'),
+        SnackBar(
+          content: Text(
+            tr('Оповещение создано — пришлём пуш по этому маршруту.'),
+          ),
         ),
       );
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось создать оповещение.')),
+        SnackBar(content: Text(tr('Не удалось создать оповещение.'))),
       );
     }
   }
@@ -485,11 +664,11 @@ class _RideAlertCard extends ConsumerWidget {
     try {
       await ref.read(rideAlertsProvider.notifier).remove(id);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Оповещение отключено.')),
+        SnackBar(content: Text(tr('Оповещение отключено.'))),
       );
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось отключить оповещение.')),
+        SnackBar(content: Text(tr('Не удалось отключить оповещение.'))),
       );
     }
   }

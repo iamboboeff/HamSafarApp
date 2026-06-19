@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../../../models/passenger_request.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text.dart';
@@ -38,7 +40,7 @@ class MyPassengerRequestCard extends StatelessWidget {
 
   Widget _timeRow(BuildContext context, Widget trailing) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
           request.departureClockText,
@@ -60,7 +62,10 @@ class MyPassengerRequestCard extends StatelessWidget {
     // Seat quantity is neutral info, not a status — keep it secondary so the
     // role/attention colours stay meaningful.
     return Text(
-      'Нужно $seats ${seats == 1 ? 'место' : 'места'}',
+      trf('Нужно {seats} {word}', {
+        'seats': '$seats',
+        'word': seats == 1 ? tr('место') : tr('места'),
+      }),
       style: HSText.captionSemibold.copyWith(color: context.secondaryText),
     );
   }
@@ -84,7 +89,8 @@ class MyPassengerRequestCard extends StatelessWidget {
     final cancelled = request.isCancelled;
     final IconData icon =
         cancelled ? Icons.cancel : Icons.person_off_outlined;
-    final String label = cancelled ? 'Запрос отменён' : 'Водитель не найден';
+    final String label =
+        cancelled ? tr('Запрос отменён') : tr('Водитель не найден');
     final Color color = cancelled ? hs.danger : context.secondaryText;
 
     return Column(
@@ -112,7 +118,7 @@ class MyPassengerRequestCard extends StatelessWidget {
           behavior: HitTestBehavior.opaque,
           child: Center(
             child: Text(
-              'Повторить поездку',
+              tr('Повторить поездку'),
               style: HSText.subheadlineMedium.copyWith(color: hs.primary),
             ),
           ),
@@ -135,7 +141,7 @@ class MyPassengerRequestCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(100),
           ),
           child: Text(
-            'Запрос водителям',
+            tr('Запрос водителям'),
             style: HSText.caption2Bold.copyWith(color: hs.passenger),
           ),
         ),
@@ -160,12 +166,13 @@ class MyPassengerRequestCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Подходящие водители ($matchingCount)',
+                        trf('Подходящие водители ({count})',
+                            {'count': '$matchingCount'}),
                         style: HSText.subheadlineSemibold,
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Отклики по вашему запросу',
+                        tr('Отклики по вашему запросу'),
                         style: HSText.caption2
                             .copyWith(color: context.secondaryText),
                       ),

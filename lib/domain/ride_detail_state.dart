@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../models/booked_trip.dart';
 import '../models/ride.dart';
 import '../models/residence_country.dart';
@@ -68,7 +70,7 @@ class RideDetailDerivedState {
 
   String get rideCarModelText {
     final trimmed = currentRide.carModel.trim();
-    return trimmed.isEmpty ? 'Автомобиль не указан' : trimmed;
+    return trimmed.isEmpty ? tr('Автомобиль не указан') : trimmed;
   }
 
   /// Colour + plate of the car for the detail block, e.g.
@@ -79,11 +81,13 @@ class RideDetailDerivedState {
     final plate = currentRide.carPlate.trim();
     final parts = <String>[
       if (color.isNotEmpty) color,
-      if (plate.isNotEmpty) 'номер $plate',
+      if (plate.isNotEmpty) trf('номер {plate}', {'plate': plate}),
     ];
     if (parts.isEmpty) {
-      return 'Комфортная поездка по маршруту '
-          '${currentRide.fromCity} — ${currentRide.toCity}';
+      return trf('Комфортная поездка по маршруту {from} — {to}', {
+        'from': currentRide.fromCity,
+        'to': currentRide.toCity,
+      });
     }
     return parts.join(' • ');
   }
@@ -95,19 +99,28 @@ class RideDetailDerivedState {
     final conditions = <RideDetailCondition>[];
     if (currentRide.instantBookingEnabled) {
       conditions.add(
-        const RideDetailCondition(
-          title: 'Мгновенное бронирование',
-          subtitle: 'Место подтверждается сразу, без ожидания водителя',
+        RideDetailCondition(
+          title: tr('Мгновенное бронирование'),
+          subtitle: tr('Место подтверждается сразу, без ожидания водителя'),
           iconKey: 'bolt',
+          accent: RideDetailAccent.primary,
+        ),
+      );
+    } else {
+      conditions.add(
+        RideDetailCondition(
+          title: tr('Бронирование по запросу'),
+          subtitle: tr('Место подтвердит водитель после вашей заявки'),
+          iconKey: 'calendar_clock',
           accent: RideDetailAccent.primary,
         ),
       );
     }
     if (currentRide.maxTwoPassengersInBackEnabled) {
       conditions.add(
-        const RideDetailCondition(
-          title: 'Максимум двое сзади',
-          subtitle: 'В поездке включена комфортная рассадка для пассажиров',
+        RideDetailCondition(
+          title: tr('Максимум двое сзади'),
+          subtitle: tr('В поездке включена комфортная рассадка для пассажиров'),
           iconKey: 'people',
           accent: RideDetailAccent.warm,
         ),
@@ -120,16 +133,18 @@ class RideDetailDerivedState {
     final rows = <RideDetailInfoRow>[
       RideDetailInfoRow(
         title: currentRide.instantBookingEnabled
-            ? 'Ваше бронирование подтвердится сразу'
-            : 'Ваше бронирование будет подтверждено только после одобрения водителя',
+            ? tr('Ваше бронирование подтвердится сразу')
+            : tr(
+                'Ваше бронирование будет подтверждено только после одобрения водителя',
+              ),
         iconKey: currentRide.instantBookingEnabled ? 'bolt' : 'calendar_clock',
         accent: RideDetailAccent.primary,
       ),
     ];
     if (currentRide.maxTwoPassengersInBackEnabled) {
       rows.add(
-        const RideDetailInfoRow(
-          title: 'Максимум двое сзади',
+        RideDetailInfoRow(
+          title: tr('Максимум двое сзади'),
           iconKey: 'people',
           accent: RideDetailAccent.warm,
         ),

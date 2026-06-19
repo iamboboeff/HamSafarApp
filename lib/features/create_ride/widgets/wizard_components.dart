@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 import '../../../domain/date_formatter.dart';
 import '../../../theme/app_colors.dart';
@@ -112,8 +113,11 @@ class WizardFieldRow extends StatelessWidget {
         height: 64,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
-          color: hs.background,
+          // A raised field surface so the selector stands out from the flat
+          // page background (matches the time-picker field).
+          color: hs.secondarySurface,
           borderRadius: BorderRadius.circular(HSRadius.medium),
+          border: Border.all(color: hs.stroke),
         ),
         child: Row(
           children: [
@@ -378,46 +382,60 @@ class SearchInfoTile extends StatelessWidget {
     required this.title,
     required this.value,
     required this.icon,
+    this.onTap,
   });
 
   final String title;
   final String value;
   final IconData icon;
 
+  /// When set, the tile is tappable (e.g. to reopen the date picker) and shows
+  /// a trailing chevron. A null [onTap] keeps the tile inert (QA #14).
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 72),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: hs.background,
-        borderRadius: BorderRadius.circular(HSRadius.medium),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: hs.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: HSText.caption.copyWith(color: context.secondaryText),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: HSText.subheadlineSemibold,
-                ),
-              ],
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 72),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          // Raised field surface so it doesn't blend into the flat page.
+          color: hs.secondarySurface,
+          borderRadius: BorderRadius.circular(HSRadius.medium),
+          border: Border.all(color: hs.stroke),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: hs.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style:
+                        HSText.caption.copyWith(color: context.secondaryText),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: HSText.subheadlineSemibold,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            if (onTap != null)
+              Icon(Icons.chevron_right, size: 16, color: context.secondaryText),
+          ],
+        ),
       ),
     );
   }
@@ -501,7 +519,7 @@ Future<void> showWizardTimePicker(
                   const Spacer(),
                   TextButton(
                     onPressed: () => Navigator.of(sheetContext).pop(),
-                    child: const Text('Готово'),
+                    child: Text(tr('Готово')),
                   ),
                 ],
               ),

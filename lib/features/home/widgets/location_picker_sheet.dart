@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../../../models/location.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text.dart';
@@ -116,11 +118,11 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Закрыть'),
+                    child: Text(tr('Закрыть')),
                   ),
                   Expanded(
                     child: Text(
-                      widget.title,
+                      tr(widget.title),
                       textAlign: TextAlign.center,
                       style: HSText.headline,
                     ),
@@ -135,7 +137,7 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
                 autofocus: true,
                 onChanged: (value) => setState(() => _query = value),
                 decoration: InputDecoration(
-                  hintText: 'Город, район или страна',
+                  hintText: tr('Город, район или страна'),
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
                   fillColor: hs.cardBackground,

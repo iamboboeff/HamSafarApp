@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/i18n/l10n.dart';
 import '../../core/supabase/supabase_service.dart';
 import '../../domain/date_formatter.dart';
 import '../../domain/ride_booking.dart';
+import '../../models/app_tab.dart';
 import '../../models/ride.dart';
+import '../../models/trip_section.dart';
 import '../../state/app_state.dart';
+import '../../state/chat_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/buttons.dart';
@@ -58,7 +62,8 @@ class _RideBookingCheckoutScreenState
     } on SupabaseServiceError catch (e) {
       errorMessage = e.message;
     } catch (_) {
-      errorMessage = 'Не удалось отправить бронирование. Попробуйте ещё раз.';
+      errorMessage =
+          tr('Не удалось отправить бронирование. Попробуйте ещё раз.');
     }
     if (!mounted) return;
     setState(() => _isSubmitting = false);
@@ -67,18 +72,31 @@ class _RideBookingCheckoutScreenState
       // First contextually-relevant moment for push: the passenger will want
       // to hear when the driver confirms. Prompts once; later calls no-op.
       ref.read(sessionProvider.notifier).ensurePushPermission();
+      // Deliver the passenger's free-text message to the driver via chat
+      // (QA #19). Best-effort; a chat hiccup must not fail the booking.
+      final message = _messageController.text.trim();
+      if (message.isNotEmpty) {
+        await ref.read(chatProvider.notifier).sendBookingMessageToDriver(
+              driver: ride.driver,
+              route: '${ride.fromCity} - ${ride.toCity}',
+              message: message,
+              departureDate: ride.departureDate,
+              rideId: ride.backendId,
+            );
+      }
+      if (!mounted) return;
     }
 
     if (errorMessage != null) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Не удалось выполнить действие'),
+          title: Text(tr('Не удалось выполнить действие')),
           content: Text(errorMessage!),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Ок'),
+              child: Text(tr('Ок')),
             ),
           ],
         ),
@@ -90,30 +108,41 @@ class _RideBookingCheckoutScreenState
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(
-          _instant ? 'Бронирование подтверждено' : 'Заявка отправлена',
+          _instant
+              ? tr('Бронирование подтверждено')
+              : tr('Заявка отправлена'),
         ),
         content: Text(
           _instant
-              ? 'Место закреплено сразу, поездка уже появилась в ваших '
-                    'активных поездках.'
-              : 'Водитель получит вашу заявку и сможет подтвердить её.',
+              ? tr('Место закреплено сразу, поездка уже появилась в ваших '
+                  'активных поездках.')
+              : tr('Водитель получит вашу заявку и сможет подтвердить её.'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Ок'),
+            child: Text(tr('Ок')),
           ),
         ],
       ),
     );
-    if (mounted) Navigator.of(context).pop();
+    if (!mounted) return;
+    // Take the rider to My Trips to track the booking — «Запросы» for a pending
+    // заявка, «Активные» for an instant confirmation — unwinding the
+    // search → detail → checkout stack back to the tab shell.
+    ref.read(requestedTripsSectionProvider.notifier).request(
+          _instant ? TripSection.active : TripSection.requests,
+        );
+    ref.read(selectedTabProvider.notifier).select(AppTab.trips);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
   Widget build(BuildContext context) {
     final hs = context.hs;
     final arrivalTimeText = RideBookingDomain.arrivalTimeText(ride);
-    final seatWord = widget.passengerCount == 1 ? 'место' : 'места';
+    final seatWord =
+        widget.passengerCount == 1 ? tr('место') : tr('места');
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -133,7 +162,7 @@ class _RideBookingCheckoutScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Проверьте данные вашего бронирования',
+                  tr('Проверьте данные вашего бронирования'),
                   style: HSText.largeTitle,
                 ),
                 const SizedBox(height: 18),
@@ -155,18 +184,18 @@ class _RideBookingCheckoutScreenState
                         children: [
                           Text(
                             _instant
-                                ? 'Ваше бронирование подтвердится сразу'
-                                : 'Ваше бронирование будет подтверждено только '
-                                      'после одобрения водителя',
+                                ? tr('Ваше бронирование подтвердится сразу')
+                                : tr('Ваше бронирование будет подтверждено только '
+                                    'после одобрения водителя'),
                             style: HSText.subheadlineSemibold,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             _instant
-                                ? 'Место закрепится без дополнительного '
-                                      'ожидания.'
-                                : 'После отправки водитель увидит ваш запрос и '
-                                      'сможет подтвердить поездку.',
+                                ? tr('Место закрепится без дополнительного '
+                                    'ожидания.')
+                                : tr('После отправки водитель увидит ваш запрос и '
+                                    'сможет подтвердить поездку.'),
                             style: HSText.footnote.copyWith(
                               color: context.secondaryText,
                             ),
@@ -205,7 +234,8 @@ class _RideBookingCheckoutScreenState
                           RideLocationRow(
                             title: ride.fromCity,
                             subtitle:
-                                ride.meetingPoint.addressLine ?? 'Уточняется',
+                                ride.meetingPoint.addressLine ??
+                                tr('Уточняется'),
                             accent: hs.primary,
                             showsConnector: true,
                           ),
@@ -213,7 +243,7 @@ class _RideBookingCheckoutScreenState
                             title: ride.toCity,
                             subtitle:
                                 ride.destinationPoint.addressLine ??
-                                'Уточняется',
+                                tr('Уточняется'),
                             accent: hs.passenger,
                             showsConnector: false,
                           ),
@@ -225,7 +255,7 @@ class _RideBookingCheckoutScreenState
                 const SizedBox(height: 18),
                 Divider(color: hs.stroke),
                 const SizedBox(height: 18),
-                Text('Всего к оплате', style: HSText.title3),
+                Text(tr('Всего к оплате'), style: HSText.title3),
                 const SizedBox(height: 14),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,13 +264,16 @@ class _RideBookingCheckoutScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${widget.passengerCount} $seatWord: '
-                          '${widget.totalPriceText}',
+                          trf('{count} {seatWord}: {price}', {
+                            'count': '${widget.passengerCount}',
+                            'seatWord': seatWord,
+                            'price': widget.totalPriceText,
+                          }),
                           style: HSText.title3,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Во время поездки',
+                          tr('Во время поездки'),
                           style: HSText.subheadline.copyWith(
                             color: context.secondaryText,
                           ),
@@ -248,15 +281,18 @@ class _RideBookingCheckoutScreenState
                       ],
                     ),
                     const Spacer(),
-                    Text('Наличными', style: HSText.title3),
+                    Text(tr('Наличными'), style: HSText.title3),
                   ],
                 ),
                 const SizedBox(height: 18),
                 Divider(color: hs.stroke),
                 const SizedBox(height: 18),
                 Text(
-                  'Напишите пользователю ${ride.driver.name}, чтобы повысить '
-                  'свои шансы на совместную поездку',
+                  trf(
+                    'Напишите пользователю {name}, чтобы повысить '
+                    'свои шансы на совместную поездку',
+                    {'name': ride.driver.name},
+                  ),
                   style: HSText.title3,
                 ),
                 const SizedBox(height: 12),
@@ -265,7 +301,7 @@ class _RideBookingCheckoutScreenState
                   minLines: 5,
                   maxLines: 8,
                   decoration: InputDecoration(
-                    hintText: 'Введите текст',
+                    hintText: tr('Введите текст'),
                     filled: true,
                     fillColor: hs.secondarySurface,
                     border: OutlineInputBorder(
@@ -303,7 +339,9 @@ class _RideBookingCheckoutScreenState
                     MediaQuery.of(context).padding.bottom,
               ),
               child: PrimaryFilledButton(
-                label: _instant ? 'Забронировать сразу' : 'Отправить запрос',
+                label: _instant
+                    ? tr('Забронировать сразу')
+                    : tr('Отправить запрос'),
                 isLoading: _isSubmitting,
                 onPressed: _isSubmitting ? null : _submit,
               ),

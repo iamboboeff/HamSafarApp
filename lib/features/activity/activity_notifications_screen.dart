@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../models/activity_notification.dart';
 import '../../models/app_tab.dart';
 import '../../state/activity_state.dart';
@@ -45,7 +46,7 @@ class _ActivityNotificationsScreenState
     final state = ref.watch(activityProvider);
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Уведомления')),
+      appBar: AppBar(title: Text(tr('Уведомления'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -102,11 +103,11 @@ class _EmptyState extends StatelessWidget {
           children: [
             Icon(Icons.notifications_off_outlined, size: 28, color: hs.primary),
             const SizedBox(height: 10),
-            Text('Уведомлений пока нет', style: HSText.headline),
+            Text(tr('Уведомлений пока нет'), style: HSText.headline),
             const SizedBox(height: 6),
             Text(
-              'Подтверждения, публикации и напоминания о поездках появятся '
-              'здесь.',
+              tr('Подтверждения, публикации и напоминания о поездках появятся '
+                  'здесь.'),
               textAlign: TextAlign.center,
               style: HSText.subheadline.copyWith(color: context.secondaryText),
             ),

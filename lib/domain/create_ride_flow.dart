@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../models/app_tab.dart';
 import '../models/car_profile.dart';
 import '../models/create_flow.dart';
@@ -117,10 +119,10 @@ class CreateRidePublishResult {
 abstract final class CreateRidePublishing {
   static String? validate(CreateRidePublishContext context, DateTime now) {
     if (context.mode == TravelMode.driver && context.priceValue < 1) {
-      return 'Сумма должна быть от 1 до 1000.';
+      return tr('Сумма должна быть от 1 до 1000.');
     }
     if (context.mergedDepartureDate.isBefore(now)) {
-      return 'Нельзя создать поездку на прошедшие дату или время.';
+      return tr('Нельзя создать поездку на прошедшие дату или время.');
     }
     return null;
   }

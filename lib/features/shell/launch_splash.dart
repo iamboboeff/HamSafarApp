@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hamsafar/core/i18n/l10n.dart';
 
 /// Modern, BlaBlaCar-flavoured splash. Uses a dark-navy radial gradient base
 /// with a soft teal glow under the logo, then plays a short staggered intro:
@@ -96,14 +97,14 @@ class _LaunchSplashState extends State<LaunchSplash>
   Widget build(BuildContext context) {
     return Material(
       type: MaterialType.canvas,
-      color: const Color(0xFF0D1421),
+      color: const Color(0xFF121214),
       child: AnimatedBuilder(
         animation: _intro,
         builder: (context, _) {
           return Stack(
             fit: StackFit.expand,
             children: [
-              // ---- Background: dark navy + soft teal radial glow ----
+              // ---- Background: neutral charcoal + soft teal radial glow ----
               FadeTransition(
                 opacity: _bgFade,
                 child: const DecoratedBox(
@@ -112,8 +113,8 @@ class _LaunchSplashState extends State<LaunchSplash>
                       center: Alignment(0, -0.1),
                       radius: 0.85,
                       colors: [
-                        Color(0xFF1A2A4A),
-                        Color(0xFF0D1421),
+                        Color(0xFF1F1F22),
+                        Color(0xFF121214),
                       ],
                     ),
                   ),
@@ -179,7 +180,7 @@ class _LaunchSplashState extends State<LaunchSplash>
                   Opacity(
                     opacity: _taglineFade.value,
                     child: Text(
-                      'Поездки между городами',
+                      tr('Поездки между городами'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/hs_route.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/passenger_request.dart';
 import '../../state/app_state.dart';
@@ -35,18 +36,18 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Отменить запрос?'),
-        content: const Text(
-          'Ваш запрос на поездку будет отменён и убран из списка.',
+        title: Text(tr('Отменить запрос?')),
+        content: Text(
+          tr('Ваш запрос на поездку будет отменён и убран из списка.'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Назад'),
+            child: Text(tr('Назад')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Отменить запрос'),
+            child: Text(tr('Отменить запрос')),
           ),
         ],
       ),
@@ -55,12 +56,12 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
     try {
       await ref.read(myPassengerRequestsProvider.notifier).cancel(request);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Запрос отменён.')),
+        SnackBar(content: Text(tr('Запрос отменён.'))),
       );
       navigator.pop();
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Не удалось отменить запрос.')),
+        SnackBar(content: Text(tr('Не удалось отменить запрос.'))),
       );
     }
   }
@@ -68,15 +69,12 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hs = context.hs;
-    final reviewCount = request.passenger.completedTrips < 5
-        ? 5
-        : request.passenger.completedTrips;
     final arrival = request.departureDate.add(const Duration(hours: 4));
     final hasNote = request.note.trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('Запрос водителям')),
+      appBar: AppBar(title: Text(tr('Запрос водителям'))),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -137,8 +135,8 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
                         const SizedBox(height: 4),
                         Text(
                           request.seatsNeeded == 1
-                              ? 'нужно место'
-                              : 'нужно мест',
+                              ? tr('нужно место')
+                              : tr('нужно мест'),
                           style: HSText.caption.copyWith(
                             color: context.secondaryText,
                           ),
@@ -148,7 +146,7 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 18),
-                Text('Пассажир', style: HSText.headline),
+                Text(tr('Пассажир'), style: HSText.headline),
                 const SizedBox(height: 14),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -179,19 +177,27 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
                           children: [
                             Text(request.passenger.name, style: HSText.headline),
                             const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Icon(Icons.star, size: 13, color: hs.warm),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '${request.passenger.ratingText} • '
-                                  '$reviewCount отзывов',
-                                  style: HSText.subheadline.copyWith(
-                                    color: context.secondaryText,
+                            if (request.passenger.hasRating)
+                              Row(
+                                children: [
+                                  Icon(Icons.star, size: 13, color: hs.warm),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${request.passenger.ratingText} • '
+                                    '${request.passenger.reviewsLabel}',
+                                    style: HSText.subheadline.copyWith(
+                                      color: context.secondaryText,
+                                    ),
                                   ),
+                                ],
+                              )
+                            else
+                              Text(
+                                tr('Нет отзывов'),
+                                style: HSText.subheadline.copyWith(
+                                  color: context.secondaryText,
                                 ),
-                              ],
-                            ),
+                              ),
                           ],
                         ),
                       ),
@@ -231,7 +237,7 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Напишите пассажиру, чтобы обсудить детали',
+                            tr('Напишите пассажиру, чтобы обсудить детали'),
                             style: HSText.subheadlineSemibold.copyWith(
                               color: hs.primary,
                             ),
@@ -244,7 +250,7 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
                 if (hasNote) ...[
                   const SizedBox(height: 18),
                   RideDetailSurfaceSection(
-                    title: 'Комментарий',
+                    title: tr('Комментарий'),
                     child: Text(
                       request.note,
                       style: HSText.subheadline.copyWith(
@@ -260,7 +266,7 @@ class PassengerRequestDetailScreen extends ConsumerWidget {
                     !request.isCancelled) ...[
                   const SizedBox(height: 24),
                   PrimaryFilledButton(
-                    label: 'Отменить запрос',
+                    label: tr('Отменить запрос'),
                     accent: Colors.red,
                     onPressed: () => _cancelRequest(context, ref),
                   ),

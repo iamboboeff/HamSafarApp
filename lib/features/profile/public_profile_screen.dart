@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../domain/date_formatter.dart';
 import '../../models/ride.dart';
 import '../../models/user_profile.dart';
@@ -96,13 +97,13 @@ class _UserPublicProfileScreenState
         await notifier.unblock(id);
         if (!mounted) return;
         messenger.showSnackBar(
-          const SnackBar(content: Text('Пользователь разблокирован.')),
+          SnackBar(content: Text(tr('Пользователь разблокирован.'))),
         );
       } catch (_) {
         if (!mounted) return;
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Не удалось разблокировать. Попробуйте ещё раз.'),
+          SnackBar(
+            content: Text(tr('Не удалось разблокировать. Попробуйте ещё раз.')),
           ),
         );
       }
@@ -112,20 +113,23 @@ class _UserPublicProfileScreenState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Заблокировать пользователя?'),
+        title: Text(tr('Заблокировать пользователя?')),
         content: Text(
-          'Вы больше не увидите поездки, запросы и сообщения от '
-          '${_profile.name}, а этот пользователь — ваши. Разблокировать можно '
-          'в настройках приватности.',
+          trf(
+            'Вы больше не увидите поездки, запросы и сообщения от {name}, '
+            'а этот пользователь — ваши. Разблокировать можно '
+            'в настройках приватности.',
+            {'name': _profile.name},
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Отмена'),
+            child: Text(tr('Отмена')),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Заблокировать'),
+            child: Text(tr('Заблокировать')),
           ),
         ],
       ),
@@ -135,14 +139,14 @@ class _UserPublicProfileScreenState
       await notifier.block(id);
       if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(content: Text('Пользователь заблокирован.')),
+        SnackBar(content: Text(tr('Пользователь заблокирован.'))),
       );
       Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Не удалось заблокировать. Попробуйте ещё раз.'),
+        SnackBar(
+          content: Text(tr('Не удалось заблокировать. Попробуйте ещё раз.')),
         ),
       );
     }
@@ -159,7 +163,7 @@ class _UserPublicProfileScreenState
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Профиль пользователя'),
+        title: Text(tr('Профиль пользователя')),
         actions: [
           Builder(
             builder: (context) {
@@ -167,7 +171,7 @@ class _UserPublicProfileScreenState
               final isBlocked =
                   id != null && ref.watch(blockedUserIdsProvider).contains(id);
               return PopupMenuButton<String>(
-                tooltip: 'Ещё',
+                tooltip: tr('Ещё'),
                 icon: const Icon(Icons.more_horiz),
                 onSelected: (value) {
                   if (value == 'report') {
@@ -182,14 +186,14 @@ class _UserPublicProfileScreenState
                   }
                 },
                 itemBuilder: (_) => [
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'report',
-                    child: Text('Пожаловаться'),
+                    child: Text(tr('Пожаловаться')),
                   ),
                   PopupMenuItem(
                     value: 'block',
                     child: Text(
-                      isBlocked ? 'Разблокировать' : 'Заблокировать',
+                      isBlocked ? tr('Разблокировать') : tr('Заблокировать'),
                     ),
                   ),
                 ],
@@ -269,18 +273,23 @@ class _HeaderCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              _HeaderPill(
-                icon: Icons.star_rounded,
-                iconColor: hs.warm,
-                label: profile.ratingText,
-              ),
+              // Rating pill only once the user actually has reviews — no
+              // "★ —" placeholder for new users.
+              if (profile.hasRating)
+                _HeaderPill(
+                  icon: Icons.star_rounded,
+                  iconColor: hs.warm,
+                  label: profile.ratingText,
+                ),
               _HeaderPill(
                 icon: Icons.route_rounded,
                 iconColor: hs.primary,
                 // Use the same authoritative counter as the stats card so the
                 // header doesn't disagree with the breakdown below (QA #21).
-                label:
-                    '${isLoading ? profile.completedTrips : stats.totalTrips} поездок',
+                label: trf('{count} поездок', {
+                  'count':
+                      '${isLoading ? profile.completedTrips : stats.totalTrips}',
+                }),
               ),
             ],
           ),
@@ -341,14 +350,14 @@ class _StatsCard extends StatelessWidget {
         children: [
           Expanded(
             child: _Stat(
-              label: 'Поездок как водитель',
+              label: tr('Поездок как водитель'),
               value: isLoading ? '—' : '${stats.driverTripsCount}',
             ),
           ),
           Container(width: 1, height: 36, color: context.hs.stroke),
           Expanded(
             child: _Stat(
-              label: 'Поездок как пассажир',
+              label: tr('Поездок как пассажир'),
               value: isLoading ? '—' : '${stats.passengerTripsCount}',
             ),
           ),
@@ -396,7 +405,7 @@ class _ActiveRidesSection extends StatelessWidget {
           padding: const EdgeInsets.only(left: 4, bottom: 8),
           child: Row(
             children: [
-              Text('Активные поездки', style: HSText.headline),
+              Text(tr('Активные поездки'), style: HSText.headline),
               if (rides.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 Container(
@@ -421,7 +430,7 @@ class _ActiveRidesSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Center(
                 child: Text(
-                  'Сейчас активных поездок нет.',
+                  tr('Сейчас активных поездок нет.'),
                   style:
                       HSText.subheadline.copyWith(color: context.secondaryText),
                 ),
@@ -585,7 +594,7 @@ class _ReviewsSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text('Отзывы', style: HSText.headline),
+          child: Text(tr('Отзывы'), style: HSText.headline),
         ),
         if (isLoading)
           const Padding(
@@ -598,7 +607,7 @@ class _ReviewsSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Center(
                 child: Text(
-                  'Пока нет отзывов о пользователе.',
+                  tr('Пока нет отзывов о пользователе.'),
                   style: HSText.subheadline
                       .copyWith(color: context.secondaryText),
                 ),

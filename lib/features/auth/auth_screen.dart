@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../../core/net_status.dart';
 import '../../core/supabase/supabase_service.dart';
 import '../../domain/date_formatter.dart';
@@ -127,6 +129,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           )
           .timeout(const Duration(seconds: 20));
       ref.read(sessionProvider.notifier).applySession(data);
+      // Ask for notification permission right after sign-in so chat messages
+      // and booking updates can reach the user (iOS prompts only once).
+      ref.read(sessionProvider.notifier).ensurePushPermission();
       if (mounted) Navigator.of(context).pop();
     } on SupabaseServiceError catch (e) {
       setState(() => _errorMessage = e.message);
@@ -134,7 +139,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       // Offline / timeout / unexpected — don't leave the user on an endless
       // spinner with no explanation (QA #92).
       setState(() => _errorMessage =
-          isOfflineError(e) ? offlineMessage : 'Не удалось войти. Попробуйте ещё раз.');
+          isOfflineError(e) ? offlineMessage : tr('Не удалось войти. Попробуйте ещё раз.'));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -146,7 +151,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     _retryTimer?.cancel();
     setState(() {
       _retryCountdown = seconds;
-      _errorMessage = 'Слишком много попыток. Попробуйте снова через $seconds сек.';
+      _errorMessage = trf('Слишком много попыток. Попробуйте снова через {seconds} сек.', {'seconds': '$seconds'});
     });
     _retryTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -160,7 +165,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           _errorMessage = null;
         } else {
           _errorMessage =
-              'Слишком много попыток. Попробуйте снова через $_retryCountdown сек.';
+              trf('Слишком много попыток. Попробуйте снова через {seconds} сек.', {'seconds': '$_retryCountdown'});
         }
       });
     });
@@ -175,32 +180,32 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final name = _name.text.trim();
     final email = _email.text.trim().toLowerCase();
     if (name.isEmpty) {
-      setState(() => _errorMessage = 'Укажите имя.');
+      setState(() => _errorMessage = tr('Укажите имя.'));
       return;
     }
     if (!_namePattern.hasMatch(name)) {
-      setState(() => _errorMessage = 'Неверный формат имени.');
+      setState(() => _errorMessage = tr('Неверный формат имени.'));
       return;
     }
     if (email.isEmpty) {
-      setState(() => _errorMessage = 'Укажите email.');
+      setState(() => _errorMessage = tr('Укажите email.'));
       return;
     }
     if (_password.text.length < 6) {
-      setState(() => _errorMessage = 'Пароль должен быть минимум 6 символов.');
+      setState(() => _errorMessage = tr('Пароль должен быть минимум 6 символов.'));
       return;
     }
     if (_password.text != _password.text.trim()) {
       setState(() => _errorMessage =
-          'Пароль не должен начинаться или заканчиваться пробелом.');
+          tr('Пароль не должен начинаться или заканчиваться пробелом.'));
       return;
     }
     if (_password.text != _confirmPassword.text) {
-      setState(() => _errorMessage = 'Пароли не совпадают.');
+      setState(() => _errorMessage = tr('Пароли не совпадают.'));
       return;
     }
     if (_birthDate.isAfter(_minBirthDate)) {
-      setState(() => _errorMessage = 'Регистрация доступна с 16 лет.');
+      setState(() => _errorMessage = tr('Регистрация доступна с 16 лет.'));
       return;
     }
 
@@ -224,6 +229,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           ),
         );
         ref.read(sessionProvider.notifier).applySession(updated);
+        ref.read(sessionProvider.notifier).ensurePushPermission();
         if (mounted) Navigator.of(context).pop();
       } else {
         await service.signUpWithEmailPassword(
@@ -232,7 +238,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         );
         setState(() {
           _hasSentOtp = true;
-          _statusMessage = 'Код отправлен на $email.';
+          _statusMessage = trf('Код отправлен на {email}.', {'email': email});
         });
         _startResendCountdown();
         // Move focus straight to the code field so the user can type the OTP
@@ -250,7 +256,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     } catch (e) {
       setState(() => _errorMessage = isOfflineError(e)
           ? offlineMessage
-          : 'Не удалось завершить регистрацию. Попробуйте ещё раз.');
+          : tr('Не удалось завершить регистрацию. Попробуйте ещё раз.'));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -267,7 +273,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       await ref
           .read(supabaseServiceProvider)
           .resendEmailSignupOtp(_email.text.trim().toLowerCase());
-      setState(() => _statusMessage = 'Новый код отправлен.');
+      setState(() => _statusMessage = tr('Новый код отправлен.'));
       _startResendCountdown();
     } on SupabaseServiceError catch (e) {
       setState(() => _errorMessage = e.message);
@@ -298,7 +304,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         scrolledUnderElevation: 0,
         elevation: 0,
         // Reflect the selected mode instead of a static "Войти" (QA #24).
-        title: Text(_flow == AuthFlowMode.signIn ? 'Вход' : 'Регистрация'),
+        title: Text(_flow == AuthFlowMode.signIn ? tr('Вход') : tr('Регистрация')),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.of(context).pop(),
@@ -307,13 +313,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [hs.cardBackground, hs.tint, hs.background],
-          ),
-        ),
+        color: hs.background,
         child: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
@@ -331,8 +331,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Поездки между городами без лишних звонков и долгих '
-                    'согласований.',
+                    tr('Находите попутчиков и путешествуйте вместе.'),
                     style: HSText.subheadline.copyWith(
                       color: context.secondaryText,
                     ),
@@ -345,7 +344,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         HSSegmentedControl<AuthFlowMode>(
                           items: AuthFlowMode.values,
                           selected: _flow,
-                          titleOf: (m) => m.title,
+                          titleOf: (m) => tr(m.title),
                           onSelect: (m) => setState(() {
                             _flow = m;
                             _errorMessage = null;
@@ -397,14 +396,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       ),
       const SizedBox(height: 14),
       AuthField(
-        title: 'Пароль',
+        title: tr('Пароль'),
         controller: _password,
         icon: Icons.lock_outline,
         isSecure: true,
       ),
       const SizedBox(height: 18),
       PrimaryFilledButton(
-        label: 'Войти',
+        label: tr('Войти'),
         isLoading: _isLoading,
         onPressed: _isLoading ? null : _handleSignIn,
       ),
@@ -413,7 +412,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         child: GestureDetector(
           onTap: _isLoading ? null : _openPasswordRecovery,
           child: Text(
-            'Забыли пароль?',
+            tr('Забыли пароль?'),
             style: HSText.footnote.copyWith(
               fontWeight: FontWeight.w600,
               color: context.hs.primary,
@@ -439,24 +438,24 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
   List<Widget> _registerFields() {
     return [
-      AuthField(title: 'Имя', controller: _name, icon: Icons.person_outline),
+      AuthField(title: tr('Имя'), controller: _name, icon: Icons.person_outline),
       const SizedBox(height: 14),
       AuthDateField(
-        title: 'Дата рождения',
+        title: tr('Дата рождения'),
         icon: Icons.calendar_today,
         value: DateTextFormatter.dayMonthYear(_birthDate),
         onTap: _pickBirthDate,
       ),
       const SizedBox(height: 14),
       Text(
-        'Пол',
+        tr('Пол'),
         style: HSText.captionSemibold.copyWith(color: context.secondaryText),
       ),
       const SizedBox(height: 8),
       HSSegmentedControl<ProfileGender>(
         items: ProfileGender.values,
         selected: _gender,
-        titleOf: (g) => g.title,
+        titleOf: (g) => tr(g.title),
         onSelect: (g) => setState(() => _gender = g),
       ),
       const SizedBox(height: 14),
@@ -468,14 +467,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       ),
       const SizedBox(height: 14),
       AuthField(
-        title: 'Пароль',
+        title: tr('Пароль'),
         controller: _password,
         icon: Icons.lock_outline,
         isSecure: true,
       ),
       const SizedBox(height: 14),
       AuthField(
-        title: 'Повторите пароль',
+        title: tr('Повторите пароль'),
         controller: _confirmPassword,
         icon: Icons.lock_reset,
         isSecure: true,
@@ -483,7 +482,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       if (_hasSentOtp) ...[
         const SizedBox(height: 14),
         AuthField(
-          title: 'Код из письма',
+          title: tr('Код из письма'),
           controller: _otp,
           focusNode: _otpFocus,
           icon: Icons.tag,
@@ -492,7 +491,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       ],
       const SizedBox(height: 18),
       PrimaryFilledButton(
-        label: _hasSentOtp ? 'Завершить регистрацию' : 'Получить код',
+        label: _hasSentOtp ? tr('Завершить регистрацию') : tr('Получить код'),
         isLoading: _isLoading,
         onPressed:
             (_isLoading || _retryCountdown > 0) ? null : _handleRegister,
@@ -504,8 +503,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             onTap: _resendCountdown == 0 && !_isLoading ? _resendOtp : null,
             child: Text(
               _resendCountdown == 0
-                  ? 'Отправить код повторно'
-                  : 'Повторная отправка через $_resendCountdown сек',
+                  ? tr('Отправить код повторно')
+                  : trf('Повторная отправка через {seconds} сек', {'seconds': '$_resendCountdown'}),
               style: HSText.footnote.copyWith(
                 fontWeight: FontWeight.w600,
                 color: _resendCountdown == 0

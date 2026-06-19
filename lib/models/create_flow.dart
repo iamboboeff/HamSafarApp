@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import 'app_tab.dart';
 
 /// Ported from `CreateWizardStep` in `CreateRideViews.swift`.
@@ -24,38 +26,39 @@ enum CreateWizardStep {
   }
 
   String title(TravelMode mode) => switch (this) {
-    CreateWizardStep.from =>
-      mode == TravelMode.driver ? 'Откуда поедете?' : 'Откуда выезжаете?',
-    CreateWizardStep.to => 'Куда направляетесь?',
-    CreateWizardStep.date => 'Когда поедете?',
-    CreateWizardStep.time =>
-      mode == TravelMode.driver ? 'Во сколько выезд?' : 'Какое время удобно?',
-    CreateWizardStep.seats => 'Количество мест',
-    CreateWizardStep.price => 'Оплата',
-    CreateWizardStep.notes =>
-      mode == TravelMode.driver
-          ? 'Комментарий к поездке'
-          : 'Комментарий к запросу',
-    CreateWizardStep.summary =>
-      mode == TravelMode.driver ? 'Проверьте поездку' : 'Проверьте запрос',
+    CreateWizardStep.from => mode == TravelMode.driver
+        ? tr('Откуда поедете?')
+        : tr('Откуда выезжаете?'),
+    CreateWizardStep.to => tr('Куда направляетесь?'),
+    CreateWizardStep.date => tr('Когда поедете?'),
+    CreateWizardStep.time => mode == TravelMode.driver
+        ? tr('Во сколько выезд?')
+        : tr('Какое время удобно?'),
+    CreateWizardStep.seats => tr('Количество мест'),
+    CreateWizardStep.price => tr('Оплата'),
+    CreateWizardStep.notes => mode == TravelMode.driver
+        ? tr('Комментарий к поездке')
+        : tr('Комментарий к запросу'),
+    CreateWizardStep.summary => mode == TravelMode.driver
+        ? tr('Проверьте поездку')
+        : tr('Проверьте запрос'),
   };
 
   String subtitle(TravelMode mode) => switch (this) {
-    CreateWizardStep.from => 'Укажите город отправления.',
-    CreateWizardStep.to => 'Выберите город прибытия.',
-    CreateWizardStep.date => 'Сначала выберите день поездки.',
-    CreateWizardStep.time =>
-      mode == TravelMode.driver
-          ? 'Пассажиры увидят точное время выезда.'
-          : 'Выберите удобное время отправления.',
-    CreateWizardStep.seats =>
-      mode == TravelMode.driver
-          ? 'Сколько мест доступно в машине.'
-          : 'Сколько мест вам потребуется.',
-    CreateWizardStep.price => 'Настройте цену за одного пассажира.',
-    CreateWizardStep.notes => 'Добавьте важные детали поездки.',
-    CreateWizardStep.summary =>
+    CreateWizardStep.from => tr('Укажите город отправления.'),
+    CreateWizardStep.to => tr('Выберите город прибытия.'),
+    CreateWizardStep.date => tr('Сначала выберите день поездки.'),
+    CreateWizardStep.time => mode == TravelMode.driver
+        ? tr('Пассажиры увидят точное время выезда.')
+        : tr('Выберите удобное время отправления.'),
+    CreateWizardStep.seats => mode == TravelMode.driver
+        ? tr('Сколько мест доступно в машине.')
+        : tr('Сколько мест вам потребуется.'),
+    CreateWizardStep.price => tr('Настройте цену за одного пассажира.'),
+    CreateWizardStep.notes => tr('Добавьте важные детали поездки.'),
+    CreateWizardStep.summary => tr(
       'Перед публикацией проверьте маршрут и условия.',
+    ),
   };
 }
 

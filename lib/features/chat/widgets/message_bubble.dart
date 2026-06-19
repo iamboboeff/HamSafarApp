@@ -19,12 +19,20 @@ class _SystemStyle {
 
 /// Ported from `MessageBubble` in `ChatMessageComponents.swift`.
 class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message, this.onOpenAttachment});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.onOpenAttachment,
+    this.onRetry,
+  });
 
   final ChatMessage message;
 
   /// Invoked when the user taps an attachment, to open/preview it (QA #77).
   final VoidCallback? onOpenAttachment;
+
+  /// Invoked when the user taps a failed outgoing message to retry sending it.
+  final VoidCallback? onRetry;
 
   _SystemStyle _systemStyle(BuildContext context) {
     final hs = context.hs;
@@ -192,24 +200,52 @@ class MessageBubble extends StatelessWidget {
               ),
               if (!isIncoming && message.deliveryStatus != null) ...[
                 const SizedBox(width: 4),
-                Icon(
-                  message.deliveryStatus == ChatMessageDeliveryStatus.read
-                      ? Icons.done_all
-                      : Icons.done,
-                  size: 13,
-                  color: Colors.white.withValues(
-                    alpha:
-                        message.deliveryStatus == ChatMessageDeliveryStatus.read
-                        ? 1
-                        : 0.8,
-                  ),
-                ),
+                _DeliveryTick(status: message.deliveryStatus!, onRetry: onRetry),
               ],
             ],
           ),
         ],
       ),
     );
+  }
+}
+
+/// Telegram-style delivery indicator for an OUTGOING message: sending → clock,
+/// sent → one check, read → two checks, failed → tappable error (retry).
+class _DeliveryTick extends StatelessWidget {
+  const _DeliveryTick({required this.status, this.onRetry});
+
+  final ChatMessageDeliveryStatus status;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (status) {
+      case ChatMessageDeliveryStatus.sending:
+        return Icon(
+          Icons.access_time,
+          size: 13,
+          color: Colors.white.withValues(alpha: 0.7),
+        );
+      case ChatMessageDeliveryStatus.sent:
+        return Icon(
+          Icons.done,
+          size: 13,
+          color: Colors.white.withValues(alpha: 0.85),
+        );
+      case ChatMessageDeliveryStatus.read:
+        return const Icon(Icons.done_all, size: 13, color: Colors.white);
+      case ChatMessageDeliveryStatus.failed:
+        return GestureDetector(
+          onTap: onRetry,
+          behavior: HitTestBehavior.opaque,
+          child: const Icon(
+            Icons.error_outline,
+            size: 14,
+            color: Color(0xFFFFD4D4),
+          ),
+        );
+    }
   }
 }
 
@@ -222,7 +258,9 @@ class MessageDateDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      // Telegram-like breathing room around the date pill — clearly separated
+      // from the message that follows it (was a cramped 4px).
+      padding: const EdgeInsets.only(top: 10, bottom: 16),
       child: Center(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

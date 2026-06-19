@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 import '../models/ride.dart';
 import '../theme/app_colors.dart';
@@ -18,8 +20,8 @@ class RideCard extends StatelessWidget {
   bool get _isSoldOut => ride.availableSeatsCount <= 0;
 
   String get _departureDayLabel {
-    if (DateUtilsX.isToday(ride.departureDate)) return 'Сегодня';
-    if (DateUtilsX.isTomorrow(ride.departureDate)) return 'Завтра';
+    if (DateUtilsX.isToday(ride.departureDate)) return tr('Сегодня');
+    if (DateUtilsX.isTomorrow(ride.departureDate)) return tr('Завтра');
     return DateTextFormatter.dayMonthShort(ride.departureDate);
   }
 
@@ -38,7 +40,9 @@ class RideCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                // Vertically centre the smaller date against the large time
+                // (and the seats text) so the line reads evenly.
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
                     DateTextFormatter.time(ride.departureDate),
@@ -56,10 +60,10 @@ class RideCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   if (_isSoldOut)
-                    Text('Мест нет', style: HSText.captionBold)
+                    Text(tr('Мест нет'), style: HSText.captionBold)
                   else
                     Text(
-                      'Свободно $seats ${seats == 1 ? 'место' : 'места'}',
+                      trf('Свободно {seats} мест', {'seats': '$seats'}),
                       style: HSText.captionSemibold.copyWith(color: hs.primary),
                     ),
                 ],
@@ -91,7 +95,7 @@ class RideCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'за место',
+                        tr('за место'),
                         style: HSText.caption.copyWith(
                           color: context.secondaryText,
                         ),
@@ -142,6 +146,7 @@ class RideCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   RatingPill(
                     rating: ride.driver.ratingText,
+                    hasRating: ride.driver.hasRating,
                     leading: [
                       if (ride.instantBookingEnabled)
                         Icon(Icons.bolt, size: 13, color: hs.primary),

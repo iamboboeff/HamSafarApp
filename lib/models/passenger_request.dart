@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 import 'residence_country.dart';
 import 'trip_enums.dart';
@@ -38,8 +40,8 @@ class PassengerRequest {
   String get departureClockText => DateTextFormatter.time(departureDate);
 
   String get departureDayText {
-    if (DateUtilsX.isToday(departureDate)) return 'Сегодня';
-    if (DateUtilsX.isTomorrow(departureDate)) return 'Завтра';
+    if (DateUtilsX.isToday(departureDate)) return tr('Сегодня');
+    if (DateUtilsX.isTomorrow(departureDate)) return tr('Завтра');
     return DateTextFormatter.dayMonthYear(departureDate);
   }
 
@@ -50,9 +52,9 @@ class PassengerRequest {
       departureDate.isBefore(DateTime.now());
 
   String get displayStatus {
-    if (isCancelled) return 'Отменён';
-    if (isCompleted) return 'Водитель не найден';
-    return 'Активно';
+    if (isCancelled) return tr('Отменён');
+    if (isCompleted) return tr('Водитель не найден');
+    return tr('Активно');
   }
 
   TripCategory get effectiveCategory =>

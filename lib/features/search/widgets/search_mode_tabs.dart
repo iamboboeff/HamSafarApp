@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:hamsafar/core/i18n/l10n.dart';
 import '../../../models/app_tab.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text.dart';
@@ -22,7 +23,7 @@ class SearchModeTabs extends StatelessWidget {
       children: [
         Expanded(
           child: _TabItem(
-            title: 'Водители',
+            title: tr('Водители'),
             icon: Icons.airline_seat_recline_normal,
             isSelected: selection == HomeListingSection.rides,
             onTap: () => onSelect(HomeListingSection.rides),
@@ -30,7 +31,7 @@ class SearchModeTabs extends StatelessWidget {
         ),
         Expanded(
           child: _TabItem(
-            title: 'Пассажиры',
+            title: tr('Пассажиры'),
             icon: Icons.people_outline,
             isSelected: selection == HomeListingSection.passengers,
             onTap: () => onSelect(HomeListingSection.passengers),

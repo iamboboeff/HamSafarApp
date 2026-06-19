@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n/l10n.dart';
 import '../../../state/app_state.dart';
 import '../../../theme/app_dimens.dart';
 import '../../../theme/app_text.dart';
@@ -14,8 +15,8 @@ class HomeHeader extends ConsumerWidget {
     final isAuthenticated = ref.watch(isAuthenticatedProvider);
     final name = ref.watch(currentUserProvider).name.trim();
     final greeting = isAuthenticated && name.isNotEmpty
-        ? 'Здравствуйте, $name!'
-        : 'Здравствуйте!';
+        ? trf('Здравствуйте, {name}!', {'name': name})
+        : tr('Здравствуйте!');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -23,7 +24,7 @@ class HomeHeader extends ConsumerWidget {
         Text(greeting, style: HSText.largeTitle),
         const SizedBox(height: HSSpacing.item),
         Text(
-          'Междугородние маршруты без звонков и долгих согласований.',
+          tr('Находите попутчиков и путешествуйте вместе.'),
           style: HSText.subheadline.copyWith(color: context.secondaryText),
         ),
       ],

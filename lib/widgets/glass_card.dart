@@ -21,14 +21,8 @@ class GlassCard extends StatelessWidget {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            hs.cardBackground,
-            hs.cardBackground.withValues(alpha: 0.94),
-          ],
-        ),
+        // Flat gray card — no gradient.
+        color: hs.cardBackground,
         borderRadius: BorderRadius.circular(HSRadius.card),
         border: Border.all(color: hs.stroke),
         boxShadow: [

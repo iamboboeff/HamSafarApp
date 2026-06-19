@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/app_navigator.dart';
+import 'core/i18n/l10n.dart';
 import 'core/push/push_notifications_service.dart';
 import 'features/activity/activity_notifications_screen.dart';
 import 'features/chat/chat_detail_screen.dart';
@@ -32,11 +35,22 @@ class _HamSafarAppState extends ConsumerState<HamSafarApp>
     with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _pushOpenedSub;
   StreamSubscription<InAppMessage>? _bannerSub;
+  StreamSubscription<AuthState>? _authSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Keep the realtime socket's JWT current: on token refresh / sign-in the
+    // chat websocket must be re-authed or RLS-gated postgres_changes go silent
+    // (a second device then stops receiving messages).
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      final event = data.event;
+      if (event == AuthChangeEvent.tokenRefreshed ||
+          event == AuthChangeEvent.signedIn) {
+        ref.read(supabaseChatServiceProvider).refreshRealtimeAuth();
+      }
+    });
     // Navigate when the user taps a push notification (QA #25).
     _pushOpenedSub =
         PushNotificationsService.instance.openedMessages.listen(_handlePushOpened);
@@ -59,6 +73,7 @@ class _HamSafarAppState extends ConsumerState<HamSafarApp>
   void dispose() {
     _pushOpenedSub?.cancel();
     _bannerSub?.cancel();
+    _authSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -152,8 +167,10 @@ class _HamSafarAppState extends ConsumerState<HamSafarApp>
       ref.read(activityProvider.notifier).refresh();
       ref.read(bookedTripsProvider.notifier).refresh();
       // Reconcile the chat list too — the realtime websocket may have dropped
-      // while the app was backgrounded.
+      // while the app was backgrounded — and resend any messages that were
+      // composed offline (the outbox).
       ref.read(chatProvider.notifier).refresh();
+      ref.read(chatProvider.notifier).flushOutbox();
       // Ride alerts are one-shot and auto-removed server-side once a matching
       // ride is published, so re-sync the local list to drop fired ones.
       ref.read(rideAlertsProvider.notifier).refresh();
@@ -163,10 +180,26 @@ class _HamSafarAppState extends ConsumerState<HamSafarApp>
   @override
   Widget build(BuildContext context) {
     final appearance = ref.watch(appearanceSettingsProvider);
+    // Drive the reactive localization layer from the appearance setting. Setting
+    // it here (inside the build that already watches `appearanceSettingsProvider`)
+    // means a language switch rebuilds the whole tree and every `tr()` call —
+    // including those in non-widget code — re-evaluates against the new language.
+    L10n.instance.language = appearance.language;
     return MaterialApp(
       title: 'HamSafar',
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
+      // Flutter's bundled Material/Cupertino localizations don't ship a Tajik
+      // ('tg') set, so built-in widget chrome (date pickers, text-selection
+      // menus) is pinned to Russian for both app languages. All HamSafar UI text
+      // is translated through our own `tr()` layer instead.
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('ru')],
+      locale: const Locale('ru'),
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: appearance.theme.themeMode,

@@ -1,3 +1,5 @@
+import 'package:hamsafar/core/i18n/l10n.dart';
+
 import '../domain/date_formatter.dart';
 import 'ride.dart';
 import 'trip_enums.dart';
@@ -100,16 +102,16 @@ class BookedTrip {
   }
 
   String get displayStatus {
-    if (isCancelled) return isExpired ? 'Истекла' : 'Отменена';
-    if (noPassengerFound) return 'Пассажир не найден';
-    if (isCompleted) return 'Завершена';
-    if (isInProgress) return 'В пути';
+    if (isCancelled) return isExpired ? tr('Истекла') : tr('Отменена');
+    if (noPassengerFound) return tr('Пассажир не найден');
+    if (isCompleted) return tr('Завершена');
+    if (isInProgress) return tr('В пути');
     return switch (role) {
-      TripRole.driver => 'Опубликована',
+      TripRole.driver => tr('Опубликована'),
       TripRole.passenger =>
         isPendingConfirmation
-            ? 'Ждёт подтверждения'
-            : (isConfirmed ? 'Подтверждена' : status),
+            ? tr('Ждёт подтверждения')
+            : (isConfirmed ? tr('Подтверждена') : status),
     };
   }
 
@@ -119,8 +121,8 @@ class BookedTrip {
   String get departureClockText => DateTextFormatter.time(ride.departureDate);
 
   String get departureDayText {
-    if (DateUtilsX.isToday(ride.departureDate)) return 'Сегодня';
-    if (DateUtilsX.isTomorrow(ride.departureDate)) return 'Завтра';
+    if (DateUtilsX.isToday(ride.departureDate)) return tr('Сегодня');
+    if (DateUtilsX.isTomorrow(ride.departureDate)) return tr('Завтра');
     return DateTextFormatter.dayMonthYear(ride.departureDate);
   }
 }

@@ -35,11 +35,17 @@ class HomeSearchState {
     RideSearch? search,
     this.hasSelectedFrom = false,
     this.hasSelectedTo = false,
+    this.hasSelectedDate = false,
   }) : search = search ?? RideSearch(date: DateTime.now());
 
   final RideSearch search;
   final bool hasSelectedFrom;
   final bool hasSelectedTo;
+
+  /// Whether the user explicitly picked a date. When false the search spans
+  /// "Все даты" (the default); `search.date` is then only the calendar anchor
+  /// used the moment they do pick a concrete day.
+  final bool hasSelectedDate;
 
   ({LocationSelection from, LocationSelection to})? get selectedRoute {
     final from = search.fromLocation;
@@ -56,11 +62,13 @@ class HomeSearchState {
     RideSearch? search,
     bool? hasSelectedFrom,
     bool? hasSelectedTo,
+    bool? hasSelectedDate,
   }) {
     return HomeSearchState(
       search: search ?? this.search,
       hasSelectedFrom: hasSelectedFrom ?? this.hasSelectedFrom,
       hasSelectedTo: hasSelectedTo ?? this.hasSelectedTo,
+      hasSelectedDate: hasSelectedDate ?? this.hasSelectedDate,
     );
   }
 

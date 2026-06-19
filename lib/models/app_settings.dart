@@ -5,24 +5,30 @@ import 'package:flutter/material.dart';
 /// Ported from `NotificationSettings`.
 class NotificationSettings {
   const NotificationSettings({
+    this.pushEnabled = true,
     this.messages = true,
     this.bookingConfirmations = true,
     this.tripReminders = true,
-    this.promotions = false,
+    this.promotions = true,
   });
 
+  /// Master switch. When false the app suppresses all push / local
+  /// notifications and won't prompt or register for a device token (QA #34).
+  final bool pushEnabled;
   final bool messages;
   final bool bookingConfirmations;
   final bool tripReminders;
   final bool promotions;
 
   NotificationSettings copyWith({
+    bool? pushEnabled,
     bool? messages,
     bool? bookingConfirmations,
     bool? tripReminders,
     bool? promotions,
   }) {
     return NotificationSettings(
+      pushEnabled: pushEnabled ?? this.pushEnabled,
       messages: messages ?? this.messages,
       bookingConfirmations: bookingConfirmations ?? this.bookingConfirmations,
       tripReminders: tripReminders ?? this.tripReminders,
@@ -31,10 +37,12 @@ class NotificationSettings {
   }
 }
 
-/// Ported from `AppLanguage`.
+/// The languages the app's UI can render in. Each [title] is the language's own
+/// native name (shown as-is in the picker, never translated). Tajik is written
+/// in its standard Cyrillic script (тоҷикӣ).
 enum AppLanguage {
   russian('Русский'),
-  english('English');
+  tajik('Тоҷикӣ');
 
   const AppLanguage(this.title);
   final String title;

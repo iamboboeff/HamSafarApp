@@ -10,6 +10,7 @@ import '../core/push/push_notifications_service.dart';
 import '../core/supabase/supabase_service.dart';
 import '../models/app_settings.dart';
 import '../models/app_tab.dart';
+import '../models/trip_section.dart';
 import '../models/booked_trip.dart';
 import '../models/car_profile.dart';
 import '../models/ride_alert.dart';
@@ -196,11 +197,28 @@ class SessionNotifier extends Notifier<SessionState> {
   /// iOS only surfaces the prompt on the first call; later calls are no-ops,
   /// so callers can fire this freely after any such action.
   Future<void> ensurePushPermission() async {
+    if (!PushNotificationsService.pushEnabled) return;
     final push = PushNotificationsService.instance;
     await push.requestPermissionAndRegister();
     final token = push.latestToken ?? await push.currentDeviceToken();
     if (token != null && state.isAuthenticated) {
       _service.registerPushDeviceToken(token).ignore();
+    }
+  }
+
+  /// Master push gate (QA #34). When [enabled] is false we stop the contextual
+  /// prompt + tray notifications (via the static gate) and deactivate the
+  /// device token so the backend stops pushing to this device.
+  Future<void> setPushEnabled(bool enabled) async {
+    PushNotificationsService.pushEnabled = enabled;
+    final push = PushNotificationsService.instance;
+    if (enabled) {
+      await _syncPushTokenForActiveSession();
+    } else {
+      final token = push.latestToken ?? await push.currentDeviceToken();
+      if (token != null) {
+        _service.unregisterPushDeviceToken(token).ignore();
+      }
     }
   }
 
@@ -443,10 +461,12 @@ class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
   Future<void> _load(String? backendId) async {
     final cached = await AppPreferencesStore.load(backendId: backendId);
     if (cached != null) state = cached.notifications;
+    PushNotificationsService.pushEnabled = state.pushEnabled;
   }
 
   void update(NotificationSettings settings) {
     state = settings;
+    PushNotificationsService.pushEnabled = settings.pushEnabled;
     _persist();
   }
 
@@ -798,7 +818,15 @@ class HomeSearchNotifier extends Notifier<HomeSearchState> {
   }
 
   void setDate(DateTime date) {
-    state = state.copyWith(search: state.search.copyWith(date: date));
+    state = state.copyWith(
+      search: state.search.copyWith(date: date),
+      hasSelectedDate: true,
+    );
+  }
+
+  /// Reset to the "Все даты" default (keeps the stored anchor date).
+  void clearDate() {
+    state = state.copyWith(hasSelectedDate: false);
   }
 
   void setPassengers(int passengers) {
@@ -863,6 +891,22 @@ class CreateTabResetNotifier extends Notifier<int> {
 
 final createTabResetProvider =
     NotifierProvider<CreateTabResetNotifier, int>(CreateTabResetNotifier.new);
+
+/// One-shot request to open a specific My Trips section — e.g. after a booking
+/// we jump the rider to «Запросы» / «Активные». My Trips consumes and clears it.
+class RequestedTripsSectionNotifier extends Notifier<TripSection?> {
+  @override
+  TripSection? build() => null;
+
+  void request(TripSection section) => state = section;
+
+  void clear() => state = null;
+}
+
+final requestedTripsSectionProvider =
+    NotifierProvider<RequestedTripsSectionNotifier, TripSection?>(
+  RequestedTripsSectionNotifier.new,
+);
 
 class SelectedHomeSectionNotifier extends Notifier<HomeListingSection> {
   @override
