@@ -24,6 +24,21 @@ class LocationCountry {
   final List<LocationCity> cities;
   final List<String> regions;
 
+  /// Every place that can be used as a route endpoint.
+  ///
+  /// The original model kept smaller towns and settlements in [regions], but
+  /// the picker only rendered [cities].  That made valid endpoints such as
+  /// Besharyk invisible even though they were already present in the catalog.
+  List<LocationCity> get routeLocations {
+    final locations = <String, LocationCity>{
+      for (final city in cities) city.name: city,
+    };
+    for (final region in regions) {
+      locations.putIfAbsent(region, () => LocationCity(region));
+    }
+    return List<LocationCity>.unmodifiable(locations.values);
+  }
+
   /// Mirrors `cityPriorityIndex(for:)` — keeps the well-known cities at the top
   /// of the picker, everything else falls back to directory order.
   int cityPriorityIndex(String cityName) {
@@ -185,6 +200,7 @@ abstract final class LocationDirectory {
       'Паркент',
       'Риштан',
       'Бешарык',
+      'Ойбек',
       'Шават',
       'Хазарасп',
       'Касан',
@@ -249,6 +265,7 @@ abstract final class LocationDirectory {
       'Муминабад',
       'Темурмалик',
       'Панч',
+      'Шахритус',
       'Балджувон',
       'Варзоб',
     ],
@@ -258,7 +275,7 @@ abstract final class LocationDirectory {
 
   static LocationSelection cityNamed(String name) {
     for (final country in countries) {
-      for (final city in country.cities) {
+      for (final city in country.routeLocations) {
         if (city.name == name) {
           return LocationSelection(
             country: country,
@@ -282,7 +299,7 @@ abstract final class LocationDirectory {
   }) {
     for (final country in countries) {
       if (country.name != countryName) continue;
-      for (final city in country.cities) {
+      for (final city in country.routeLocations) {
         if (city.name == cityName) {
           return LocationSelection(
             country: country,

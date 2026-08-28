@@ -17,7 +17,7 @@ abstract final class HomeFlow {
       if (match != null) return match;
     }
     for (final country in LocationDirectory.countries) {
-      for (final city in country.cities) {
+      for (final city in country.routeLocations) {
         if (city.name == cityName) {
           return LocationSelection(
             country: country,

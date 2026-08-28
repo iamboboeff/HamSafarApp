@@ -68,7 +68,7 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
         : widget.availableCountries;
     return [
       for (final country in countries)
-        for (final city in country.cities)
+        for (final city in country.routeLocations)
           _LocationOption(
             selection: LocationSelection(
               country: country,
@@ -95,8 +95,7 @@ class _LocationPickerSheetState extends State<_LocationPickerSheet> {
     // instead of leaving results in raw directory order (QA #62).
     final options = query.isEmpty
         ? _allOptions
-        : (_allOptions.where((o) => o.matches(_query)).toList()
-          ..sort((a, b) {
+        : (_allOptions.where((o) => o.matches(_query)).toList()..sort((a, b) {
             final aStarts = a.title.toLowerCase().startsWith(query);
             final bStarts = b.title.toLowerCase().startsWith(query);
             if (aStarts != bStarts) return aStarts ? -1 : 1;

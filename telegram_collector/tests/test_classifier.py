@@ -65,7 +65,39 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(parsed.kind, "not_a_ride")
         self.assertEqual(parsed.phone, "+998931861414")
 
+    def test_besharyk_to_tashkent_with_uzbek_suffixes(self) -> None:
+        parsed = classify_message(
+            "ЭРТАЛАБ БЕШАРИКДАН ТОШКЕНТ шахар ичига юрамиз "
+            "3 та одам ва почта оламиз Авто Коболт БАГАЖ бор "
+            "+998941317805",
+            NOW,
+        )
+        self.assertEqual(parsed.kind, "offer")
+        self.assertEqual(parsed.from_city, "Бешарык")
+        self.assertEqual(parsed.to_city, "Ташкент")
+        self.assertEqual(parsed.seats, 3)
+        self.assertTrue(parsed.cargo)
+
+    def test_kokand_multistop_offer(self) -> None:
+        parsed = classify_message(
+            "КУКОНДАН ЮРАМИЗ, ДУШАНБЕ, КУРГОН, ПЯНЖ, "
+            "ШАХРИТУЗ, ТАМОЖНА ЮРАМИЗ, МОШИНА ОНИКС-ТРЕКЕР",
+            NOW,
+        )
+        self.assertEqual(parsed.kind, "offer")
+        self.assertEqual(parsed.from_city, "Коканд")
+        self.assertEqual(parsed.to_city, "Душанбе")
+
+    def test_oybek_is_a_route_endpoint(self) -> None:
+        parsed = classify_message(
+            "Салом, аз Ойбек ба Тошкент меравам, 2 нафар",
+            NOW,
+        )
+        self.assertEqual(parsed.kind, "offer")
+        self.assertEqual(parsed.from_city, "Ойбек")
+        self.assertEqual(parsed.to_city, "Ташкент")
+        self.assertEqual(parsed.seats, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
-
