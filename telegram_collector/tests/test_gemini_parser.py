@@ -81,7 +81,7 @@ class GeminiRideParserTest(unittest.TestCase):
             body["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low"
         )
         response_text = body["generationConfig"]["responseFormat"]["text"]
-        self.assertEqual(response_text["mimeType"], "application/json")
+        self.assertEqual(response_text["mimeType"], "APPLICATION_JSON")
         self.assertEqual(response_text["schema"]["type"], "object")
         self.assertIn("kind", response_text["schema"]["required"])
         self.assertNotIn("temperature", body["generationConfig"])
