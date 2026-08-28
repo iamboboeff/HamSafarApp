@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from classifier import ParsedMessage, classify_message
 from openrouter_parser import OpenRouterRideParser
 from storage import MessageStorage
+from user_forwarder import TelegramUserForwarder, UserForwarderConfig
 
 
 LOGGER = logging.getLogger("hamsafar.telegram_collector")
@@ -332,12 +333,29 @@ def main() -> int:
     try:
         config = Config.from_environment()
         collector = Collector(config)
+        forwarder = None
+        if _bool_env("USERBOT_ENABLED", False):
+            forwarder = TelegramUserForwarder(
+                UserForwarderConfig.from_environment(config.data_dir)
+            )
+            forwarder.start()
     except Exception as error:
         LOGGER.error("Configuration failed: %s", error)
         return 2
-    signal.signal(signal.SIGTERM, collector.stop)
-    signal.signal(signal.SIGINT, collector.stop)
-    collector.run()
+
+    def stop_services(*_: object) -> None:
+        collector.stop()
+        if forwarder is not None:
+            forwarder.stop()
+
+    signal.signal(signal.SIGTERM, stop_services)
+    signal.signal(signal.SIGINT, stop_services)
+    try:
+        collector.run()
+    finally:
+        stop_services()
+        if forwarder is not None:
+            forwarder.join()
     return 0
 
 

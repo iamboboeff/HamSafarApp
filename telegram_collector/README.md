@@ -57,6 +57,39 @@ python3 main.py
 База создаётся по пути `${DATA_DIR}/telegram_collector.sqlite3`. На Bothost
 `DATA_DIR` должен быть `/app/data`, чтобы сообщения переживали редеплой.
 
+## Автопересылка через реальный аккаунт
+
+Опциональный userbot работает через MTProto и Telethon. Он пересылает только
+новые входящие текстовые сообщения из явного allowlist чатов, не читает старую
+историю, не обходит запрет Telegram на пересылку и хранит ключи дедупликации в
+`${DATA_DIR}/telegram_user_forwarder.sqlite3`.
+
+Установить зависимость и создать сессию нужно локально. Код входа и пароль 2FA
+вводятся только в локальном терминале:
+
+```bash
+python3 -m venv telegram_collector/.venv
+telegram_collector/.venv/bin/python -m pip install -r telegram_collector/requirements.txt
+telegram_collector/.venv/bin/python telegram_collector/user_session_tool.py create
+telegram_collector/.venv/bin/python telegram_collector/user_session_tool.py list
+```
+
+Сессия по умолчанию сохраняется с правами `600` в
+`~/.config/hamsafar/telegram_user.session`. Этот файл предоставляет доступ к
+аккаунту: его нельзя отправлять в чат, добавлять в Git или показывать в логах.
+
+После команды `list`:
+
+1. записать ID разрешённых исходных групп в `USERBOT_SOURCE_CHAT_IDS`;
+2. записать ID группы «Такси HamSafar» в `USERBOT_TARGET_CHAT_ID`;
+3. добавить `USERBOT_API_ID`, `USERBOT_API_HASH` и содержимое session-файла
+   только в скрытые переменные Bothost;
+4. установить `USERBOT_ENABLED=true` и перезапустить сервис.
+
+Чтобы исключить петлю, целевая группа не может находиться в списке источников.
+Пересылка идёт от имени реального аккаунта, поэтому источники должны быть
+согласованы с администраторами, а скорость должна оставаться умеренной.
+
 ## Следующий этап
 
 После проверки доставки сообщений SQLite заменяется/дополняется записью в

@@ -52,4 +52,6 @@ telegram_collector/.env
 telegram_collector/data/
 telegram_collector/*.session
 telegram_collector/*.session-journal
+telegram_collector/*user.session
+telegram_collector/.venv/
 **/__pycache__/
