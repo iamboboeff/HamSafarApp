@@ -98,6 +98,15 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(parsed.to_city, "Ташкент")
         self.assertEqual(parsed.seats, 2)
 
+    def test_extracts_price_and_stated_contact_method(self) -> None:
+        parsed = classify_message(
+            "Из Худжанда в Душанбе еду, 3 места, WhatsApp +992900001122, 120 сомони",
+            NOW,
+        )
+        self.assertEqual(parsed.price, 120)
+        self.assertEqual(parsed.currency, "TJS")
+        self.assertEqual(parsed.contact_methods, ("whatsapp",))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,8 +6,12 @@ import os
 import sqlite3
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
+from zoneinfo import ZoneInfo
+
+from telegram_publisher import TelegramBatchMessage, TelegramLeadPipeline
 
 
 LOGGER = logging.getLogger("hamsafar.telegram_user_forwarder")
@@ -34,6 +38,10 @@ class UserForwarderConfig:
     target_chat_id: int
     data_dir: Path
     forward_delay_seconds: float = 1.0
+    batch_window_seconds: float = 120.0
+    backfill_today: bool = False
+    backfill_limit_per_chat: int = 100
+    timezone_name: str = "Asia/Dushanbe"
 
     @classmethod
     def from_environment(cls, data_dir: Path) -> "UserForwarderConfig":
@@ -78,6 +86,30 @@ class UserForwarderConfig:
             raise RuntimeError(
                 "USERBOT_FORWARD_DELAY_SECONDS must be between 0 and 60"
             )
+        try:
+            batch_window = float(
+                os.getenv("USERBOT_BATCH_WINDOW_SECONDS", "120")
+            )
+        except ValueError as error:
+            raise RuntimeError(
+                "USERBOT_BATCH_WINDOW_SECONDS must be a number"
+            ) from error
+        if not 1 <= batch_window <= 900:
+            raise RuntimeError(
+                "USERBOT_BATCH_WINDOW_SECONDS must be between 1 and 900"
+            )
+        try:
+            backfill_limit = int(
+                os.getenv("USERBOT_BACKFILL_LIMIT_PER_CHAT", "100")
+            )
+        except ValueError as error:
+            raise RuntimeError(
+                "USERBOT_BACKFILL_LIMIT_PER_CHAT must be an integer"
+            ) from error
+        if not 1 <= backfill_limit <= 500:
+            raise RuntimeError(
+                "USERBOT_BACKFILL_LIMIT_PER_CHAT must be between 1 and 500"
+            )
         return cls(
             api_id=api_id,
             api_hash=required["USERBOT_API_HASH"],
@@ -86,6 +118,13 @@ class UserForwarderConfig:
             target_chat_id=target_chat_id,
             data_dir=data_dir,
             forward_delay_seconds=delay,
+            batch_window_seconds=batch_window,
+            backfill_today=os.getenv("USERBOT_BACKFILL_TODAY", "false")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"},
+            backfill_limit_per_chat=backfill_limit,
+            timezone_name=os.getenv("SOURCE_TIMEZONE", "Asia/Dushanbe"),
         )
 
 
@@ -93,14 +132,34 @@ class ForwardedMessageStore:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(path)
-        self._connection.execute(
+        self._connection.row_factory = sqlite3.Row
+        self._connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS forwarded_messages (
                 source_chat_id INTEGER NOT NULL,
                 source_message_id INTEGER NOT NULL,
                 forwarded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (source_chat_id, source_message_id)
-            )
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_source_messages (
+                batch_key TEXT NOT NULL,
+                source_chat_id INTEGER NOT NULL,
+                source_chat_title TEXT,
+                source_chat_username TEXT,
+                source_message_id INTEGER NOT NULL,
+                sender_id INTEGER,
+                sender_name TEXT,
+                sender_username TEXT,
+                telegram_date TEXT NOT NULL,
+                raw_text TEXT NOT NULL,
+                forwarded INTEGER NOT NULL DEFAULT 0,
+                queued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (source_chat_id, source_message_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS pending_source_messages_batch_idx
+            ON pending_source_messages(batch_key, telegram_date, source_message_id);
             """
         )
         self._connection.commit()
@@ -126,8 +185,114 @@ class ForwardedMessageStore:
         )
         self._connection.commit()
 
+    def enqueue(self, batch_key: str, message: TelegramBatchMessage) -> bool:
+        if self.contains(message.source_chat_id, message.source_message_id):
+            return False
+        cursor = self._connection.execute(
+            """
+            INSERT OR IGNORE INTO pending_source_messages (
+                batch_key, source_chat_id, source_chat_title,
+                source_chat_username, source_message_id, sender_id,
+                sender_name, sender_username, telegram_date, raw_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                batch_key,
+                message.source_chat_id,
+                message.source_chat_title,
+                message.source_chat_username,
+                message.source_message_id,
+                message.sender_id,
+                message.sender_name,
+                message.sender_username,
+                message.sent_at.astimezone(timezone.utc).isoformat(),
+                message.text,
+            ),
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    def load_batch(self, batch_key: str) -> list[TelegramBatchMessage]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM pending_source_messages
+            WHERE batch_key = ?
+            ORDER BY telegram_date, source_message_id
+            """,
+            (batch_key,),
+        ).fetchall()
+        return [
+            TelegramBatchMessage(
+                source_chat_id=int(row["source_chat_id"]),
+                source_chat_title=row["source_chat_title"],
+                source_chat_username=row["source_chat_username"],
+                source_message_id=int(row["source_message_id"]),
+                sender_id=int(row["sender_id"])
+                if row["sender_id"] is not None
+                else None,
+                sender_name=row["sender_name"],
+                sender_username=row["sender_username"],
+                sent_at=datetime.fromisoformat(str(row["telegram_date"])),
+                text=str(row["raw_text"]),
+            )
+            for row in rows
+        ]
+
+    def batch_was_forwarded(self, batch_key: str) -> bool:
+        row = self._connection.execute(
+            """
+            SELECT min(forwarded) AS forwarded
+            FROM pending_source_messages WHERE batch_key = ?
+            """,
+            (batch_key,),
+        ).fetchone()
+        return bool(row and row["forwarded"])
+
+    def mark_batch_forwarded(self, batch_key: str) -> None:
+        self._connection.execute(
+            "UPDATE pending_source_messages SET forwarded = 1 WHERE batch_key = ?",
+            (batch_key,),
+        )
+        self._connection.commit()
+
+    def complete_batch(self, batch_key: str, messages: Sequence[TelegramBatchMessage]) -> None:
+        self._connection.executemany(
+            """
+            INSERT OR IGNORE INTO forwarded_messages (
+                source_chat_id, source_message_id
+            ) VALUES (?, ?)
+            """,
+            [
+                (message.source_chat_id, message.source_message_id)
+                for message in messages
+            ],
+        )
+        self._connection.execute(
+            "DELETE FROM pending_source_messages WHERE batch_key = ?",
+            (batch_key,),
+        )
+        self._connection.commit()
+
+    def pending_batch_keys(self) -> list[str]:
+        rows = self._connection.execute(
+            "SELECT DISTINCT batch_key FROM pending_source_messages"
+        ).fetchall()
+        return [str(row["batch_key"]) for row in rows]
+
     def close(self) -> None:
         self._connection.close()
+
+
+def _entity_name(entity: Any) -> str | None:
+    values = [
+        str(getattr(entity, name, "") or "").strip()
+        for name in ("first_name", "last_name")
+    ]
+    name = " ".join(value for value in values if value)
+    if name:
+        return name
+    title = str(getattr(entity, "title", "") or "").strip()
+    return title or None
 
 
 class TelegramUserForwarder:
@@ -137,8 +302,13 @@ class TelegramUserForwarder:
     Telegram content-protection restrictions are respected and never bypassed.
     """
 
-    def __init__(self, config: UserForwarderConfig) -> None:
+    def __init__(
+        self,
+        config: UserForwarderConfig,
+        pipeline: TelegramLeadPipeline | None = None,
+    ) -> None:
         self._config = config
+        self._pipeline = pipeline
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop_event: asyncio.Event | None = None
@@ -197,7 +367,9 @@ class TelegramUserForwarder:
             self._config.api_hash,
             flood_sleep_threshold=30,
         )
-        forward_lock = asyncio.Lock()
+        flush_lock = asyncio.Lock()
+        batch_tasks: dict[str, asyncio.Task[None]] = {}
+        active_live_batches: dict[tuple[int, object], str] = {}
         try:
             await client.connect()
             if not await client.is_user_authorized():
@@ -211,6 +383,175 @@ class TelegramUserForwarder:
             await client.get_dialogs(limit=None)
             target = await client.get_input_entity(self._config.target_chat_id)
 
+            async def schedule_batch(batch_key: str, delay: float) -> None:
+                existing = batch_tasks.get(batch_key)
+                if existing is not None and not existing.done():
+                    existing.cancel()
+
+                async def wait_then_flush() -> None:
+                    try:
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        await flush_batch(batch_key)
+                    except asyncio.CancelledError:
+                        return
+                    finally:
+                        current = asyncio.current_task()
+                        if batch_tasks.get(batch_key) is current:
+                            batch_tasks.pop(batch_key, None)
+
+                batch_tasks[batch_key] = asyncio.create_task(wait_then_flush())
+
+            async def flush_batch(batch_key: str) -> None:
+                for live_key, active_batch_key in list(active_live_batches.items()):
+                    if active_batch_key == batch_key:
+                        active_live_batches.pop(live_key, None)
+                async with flush_lock:
+                    messages = store.load_batch(batch_key)
+                    if not messages:
+                        return
+                    prepared = None
+                    if self._pipeline is not None:
+                        try:
+                            prepared = await asyncio.to_thread(
+                                self._pipeline.prepare,
+                                messages,
+                            )
+                        except Exception:
+                            LOGGER.exception(
+                                "Telegram lead preparation failed batch=%s; "
+                                "retrying later",
+                                batch_key,
+                            )
+                            batch_tasks.pop(batch_key, None)
+                            await schedule_batch(batch_key, 60)
+                            return
+                        if prepared is None:
+                            store.complete_batch(batch_key, messages)
+                            LOGGER.info(
+                                "Skipped non-ride batch=%s messages=%s",
+                                batch_key,
+                                len(messages),
+                            )
+                            return
+
+                    if not store.batch_was_forwarded(batch_key):
+                        try:
+                            source = await client.get_input_entity(
+                                messages[0].source_chat_id
+                            )
+                            source_messages = await client.get_messages(
+                                source,
+                                ids=[message.source_message_id for message in messages],
+                            )
+                            originals = [message for message in source_messages if message]
+                            if not originals:
+                                store.complete_batch(batch_key, messages)
+                                return
+                            await client.forward_messages(target, originals)
+                        except ChatForwardsRestrictedError:
+                            LOGGER.warning("Skipped protected batch=%s", batch_key)
+                            store.complete_batch(batch_key, messages)
+                            return
+                        except RPCError:
+                            LOGGER.exception(
+                                "Telegram rejected batch=%s; retrying later",
+                                batch_key,
+                            )
+                            batch_tasks.pop(batch_key, None)
+                            await schedule_batch(batch_key, 60)
+                            return
+                        store.mark_batch_forwarded(batch_key)
+
+                    if self._pipeline is not None and prepared is not None:
+                        try:
+                            await asyncio.to_thread(self._pipeline.publish, prepared)
+                        except Exception:
+                            LOGGER.exception(
+                                "Telegram lead publish failed batch=%s; retrying later",
+                                batch_key,
+                            )
+                            batch_tasks.pop(batch_key, None)
+                            await schedule_batch(batch_key, 60)
+                            return
+                    store.complete_batch(batch_key, messages)
+                    LOGGER.info(
+                        "Published Telegram ride batch=%s messages=%s target=%s",
+                        batch_key,
+                        len(messages),
+                        self._config.target_chat_id,
+                    )
+                    if self._config.forward_delay_seconds:
+                        await asyncio.sleep(self._config.forward_delay_seconds)
+
+            async def queue_message(
+                message: Any,
+                *,
+                chat: Any,
+                batch_key: str | None = None,
+                schedule_delay: float | None = None,
+            ) -> str | None:
+                source_chat_id = int(getattr(message, "chat_id", 0) or 0)
+                if source_chat_id not in self._config.source_chat_ids:
+                    return None
+                if bool(getattr(chat, "noforwards", False)):
+                    LOGGER.warning(
+                        "Skipped protected source chat=%s",
+                        source_chat_id,
+                    )
+                    return None
+                source_message_id = int(message.id)
+                if store.contains(source_chat_id, source_message_id):
+                    return None
+                text = str(getattr(message, "raw_text", "") or "").strip()
+                if not text:
+                    return None
+                sender = await message.get_sender()
+                sender_id_raw = getattr(message, "sender_id", None)
+                sender_id = int(sender_id_raw) if sender_id_raw is not None else None
+                sender_key = sender_id if sender_id is not None else "anonymous"
+                if batch_key is None:
+                    live_key = (source_chat_id, sender_key)
+                    effective_batch_key = active_live_batches.get(live_key)
+                    if effective_batch_key is None:
+                        effective_batch_key = (
+                            f"live:{source_chat_id}:{sender_key}:{source_message_id}"
+                        )
+                        active_live_batches[live_key] = effective_batch_key
+                else:
+                    effective_batch_key = batch_key
+                sent_at = getattr(message, "date", None) or datetime.now(timezone.utc)
+                if sent_at.tzinfo is None:
+                    sent_at = sent_at.replace(tzinfo=timezone.utc)
+                queued = store.enqueue(
+                    effective_batch_key,
+                    TelegramBatchMessage(
+                        source_chat_id=source_chat_id,
+                        source_chat_title=_entity_name(chat),
+                        source_chat_username=str(
+                            getattr(chat, "username", "") or ""
+                        ).strip()
+                        or None,
+                        source_message_id=source_message_id,
+                        sender_id=sender_id,
+                        sender_name=_entity_name(sender),
+                        sender_username=str(
+                            getattr(sender, "username", "") or ""
+                        ).strip()
+                        or None,
+                        sent_at=sent_at,
+                        text=text,
+                    ),
+                )
+                if queued:
+                    await schedule_batch(
+                        effective_batch_key,
+                        self._config.batch_window_seconds
+                        if schedule_delay is None
+                        else schedule_delay,
+                    )
+                return effective_batch_key
+
             @client.on(events.NewMessage(incoming=True))
             async def forward_new_message(event: Any) -> None:
                 if event.chat_id is None:
@@ -218,41 +559,81 @@ class TelegramUserForwarder:
                 source_chat_id = int(event.chat_id)
                 if source_chat_id not in self._config.source_chat_ids:
                     return
-                source_message_id = int(event.message.id)
                 if source_chat_id == self._config.target_chat_id:
                     return
-                if store.contains(source_chat_id, source_message_id):
-                    return
-                if not str(event.raw_text or "").strip():
-                    return
-                async with forward_lock:
-                    if store.contains(source_chat_id, source_message_id):
-                        return
+                chat = await event.get_chat()
+                await queue_message(event.message, chat=chat)
+
+            async def backfill_today() -> None:
+                local_tz = ZoneInfo(self._config.timezone_name)
+                local_now = datetime.now(local_tz)
+                midnight_utc = local_now.replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                ).astimezone(timezone.utc)
+                queued_batches: list[str] = []
+                for source_chat_id in sorted(self._config.source_chat_ids):
                     try:
-                        await client.forward_messages(target, event.message)
-                    except ChatForwardsRestrictedError:
-                        LOGGER.warning(
-                            "Skipped protected message chat=%s message=%s",
-                            source_chat_id,
-                            source_message_id,
-                        )
-                        return
-                    except RPCError:
+                        source = await client.get_entity(source_chat_id)
+                        history: list[Any] = []
+                        async for message in client.iter_messages(
+                            source,
+                            limit=self._config.backfill_limit_per_chat,
+                        ):
+                            sent_at = getattr(message, "date", None)
+                            if sent_at is None:
+                                continue
+                            if sent_at.tzinfo is None:
+                                sent_at = sent_at.replace(tzinfo=timezone.utc)
+                            if sent_at < midnight_utc:
+                                break
+                            if getattr(message, "out", False):
+                                continue
+                            if str(getattr(message, "raw_text", "") or "").strip():
+                                history.append(message)
+                        history.reverse()
+                        active_bursts: dict[object, tuple[datetime, str]] = {}
+                        for message in history:
+                            sender_raw = getattr(message, "sender_id", None)
+                            sender_key: object = (
+                                int(sender_raw)
+                                if sender_raw is not None
+                                else "anonymous"
+                            )
+                            sent_at = message.date
+                            previous = active_bursts.get(sender_key)
+                            if (
+                                previous is None
+                                or sent_at - previous[0]
+                                > timedelta(seconds=self._config.batch_window_seconds)
+                            ):
+                                burst_key = (
+                                    f"backfill:{source_chat_id}:{sender_key}:{message.id}"
+                                )
+                            else:
+                                burst_key = previous[1]
+                            active_bursts[sender_key] = (sent_at, burst_key)
+                            queued = await queue_message(
+                                message,
+                                chat=source,
+                                batch_key=burst_key,
+                                schedule_delay=3600,
+                            )
+                            if queued and queued not in queued_batches:
+                                queued_batches.append(queued)
+                    except Exception:
                         LOGGER.exception(
-                            "Telegram rejected forward chat=%s message=%s",
+                            "Today's backfill failed for source chat=%s",
                             source_chat_id,
-                            source_message_id,
                         )
-                        return
-                    store.mark(source_chat_id, source_message_id)
-                    LOGGER.info(
-                        "Forwarded chat=%s message=%s to chat=%s",
-                        source_chat_id,
-                        source_message_id,
-                        self._config.target_chat_id,
-                    )
-                    if self._config.forward_delay_seconds:
-                        await asyncio.sleep(self._config.forward_delay_seconds)
+                for batch_key in queued_batches:
+                    await schedule_batch(batch_key, 0)
+                LOGGER.info(
+                    "Today's Telegram backfill queued batches=%s",
+                    len(queued_batches),
+                )
 
             self._loop = asyncio.get_running_loop()
             self._stop_event = asyncio.Event()
@@ -263,7 +644,15 @@ class TelegramUserForwarder:
                 self._config.target_chat_id,
             )
             self._ready.set()
+            for batch_key in store.pending_batch_keys():
+                await schedule_batch(batch_key, 0)
+            if self._config.backfill_today:
+                asyncio.create_task(backfill_today())
             await self._stop_event.wait()
         finally:
+            for task in batch_tasks.values():
+                task.cancel()
+            if batch_tasks:
+                await asyncio.gather(*batch_tasks.values(), return_exceptions=True)
             await client.disconnect()
             store.close()

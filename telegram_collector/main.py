@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from classifier import ParsedMessage, classify_message
 from openrouter_parser import OpenRouterRideParser
 from storage import MessageStorage
+from telegram_publisher import TelegramLeadPipeline
 from user_forwarder import TelegramUserForwarder, UserForwarderConfig
 
 
@@ -335,10 +336,23 @@ def main() -> int:
         collector = Collector(config)
         forwarder = None
         if _bool_env("USERBOT_ENABLED", False):
-            forwarder = TelegramUserForwarder(
-                UserForwarderConfig.from_environment(config.data_dir)
+            pipeline = TelegramLeadPipeline.from_environment(
+                timezone_name=config.timezone_name,
+                openrouter_api_key=config.openrouter_api_key,
+                openrouter_models=config.openrouter_models,
             )
-            forwarder.start()
+            if pipeline is None:
+                LOGGER.warning(
+                    "Telegram user forwarder is paused: set "
+                    "TELEGRAM_PUBLISH_ENABLED=true after the Supabase table "
+                    "and server-side secrets are ready"
+                )
+            else:
+                forwarder = TelegramUserForwarder(
+                    UserForwarderConfig.from_environment(config.data_dir),
+                    pipeline=pipeline,
+                )
+                forwarder.start()
     except Exception as error:
         LOGGER.error("Configuration failed: %s", error)
         return 2

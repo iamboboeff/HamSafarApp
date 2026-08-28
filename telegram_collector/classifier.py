@@ -17,6 +17,9 @@ class ParsedMessage:
     seats: int | None
     phone: str | None
     confidence: float
+    price: int | None = None
+    currency: str | None = None
+    contact_methods: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -90,6 +93,16 @@ _TIME_RE = re.compile(
     r"(?:до|в|соат(?:и)?|soat)\s*(\d{1,2})(?:[:.](\d{2}))?",
     re.IGNORECASE,
 )
+_PRICE_RE = re.compile(
+    r"(?<!\d)(\d{1,7})\s*(сомон(?:и)?|смн|tjs|сум|сўм|so['’]?m|uzs)\b",
+    re.IGNORECASE,
+)
+_WHATSAPP_RE = re.compile(r"\b(?:whats?app|ватсап|вацап|вотсап)\b", re.IGNORECASE)
+_TELEGRAM_RE = re.compile(r"\b(?:telegram|телеграм|телега|тг)\b", re.IGNORECASE)
+_CALL_RE = re.compile(
+    r"\b(?:звон\w*|позвон\w*|зан[гк]\w*|телефон\w*|қўнғироқ\w*)\b",
+    re.IGNORECASE,
+)
 
 
 def _find_cities(text: str) -> list[str]:
@@ -120,6 +133,27 @@ def _extract_phone(text: str) -> str | None:
         if 9 <= digit_count <= 15:
             return normalized
     return None
+
+
+def _extract_price(text: str) -> tuple[int | None, str | None]:
+    match = _PRICE_RE.search(text)
+    if not match:
+        return None, None
+    value = int(match.group(1))
+    unit = match.group(2).lower()
+    currency = "UZS" if unit in {"сум", "сўм", "som", "so'm", "so’m", "uzs"} else "TJS"
+    return value, currency
+
+
+def _extract_contact_methods(text: str, phone: str | None) -> tuple[str, ...]:
+    methods: list[str] = []
+    if _TELEGRAM_RE.search(text):
+        methods.append("telegram")
+    if _WHATSAPP_RE.search(text):
+        methods.append("whatsapp")
+    if _CALL_RE.search(text) or (phone and not methods):
+        methods.append("phone")
+    return tuple(dict.fromkeys(methods))
 
 
 def _extract_time(text: str) -> str | None:
@@ -157,6 +191,8 @@ def classify_message(text: str, message_date: datetime) -> ParsedMessage:
     offer_cue = bool(_OFFER_RE.search(cleaned))
     request_cue = bool(_REQUEST_RE.search(cleaned))
     phone = _extract_phone(cleaned)
+    price, currency = _extract_price(cleaned)
+    contact_methods = _extract_contact_methods(cleaned, phone)
     seats_match = _SEATS_RE.search(cleaned)
     seats = int(seats_match.group(1)) if seats_match else None
 
@@ -174,6 +210,9 @@ def classify_message(text: str, message_date: datetime) -> ParsedMessage:
             seats=None,
             phone=phone,
             confidence=0.95 if phone or len(cleaned) < 30 else 0.82,
+            price=price,
+            currency=currency,
+            contact_methods=contact_methods,
         )
 
     if offer_cue:
@@ -225,4 +264,7 @@ def classify_message(text: str, message_date: datetime) -> ParsedMessage:
         seats=seats,
         phone=phone,
         confidence=round(min(confidence, 0.99), 2),
+        price=price,
+        currency=currency,
+        contact_methods=contact_methods,
     )

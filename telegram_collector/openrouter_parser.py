@@ -43,6 +43,16 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
             "enum": ["exact", "fuzzy", "unknown"],
         },
         "seats": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+        "price": {"type": ["integer", "null"], "minimum": 0},
+        "currency": {
+            "type": ["string", "null"],
+            "enum": ["TJS", "UZS", None],
+        },
+        "contact_methods": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["telegram", "whatsapp", "phone"]},
+            "uniqueItems": True,
+        },
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
     },
     "required": [
@@ -54,6 +64,9 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
         "depart_time",
         "date_precision",
         "seats",
+        "price",
+        "currency",
+        "contact_methods",
         "confidence",
     ],
 }
@@ -147,7 +160,10 @@ class OpenRouterRideParser:
             "conventional Russian Cyrillic (for example Тошкент→Ташкент, Кукон→Коканд, "
             "Бешарик→Бешарык). Relative dates are resolved against the supplied local "
             "message time. [PHONE] means a phone number was removed for privacy. Return "
-            "only the requested structured result."
+            "Extract a stated per-seat or whole-trip price only when explicit, with TJS "
+            "for somoni and UZS for Uzbek so'm. contact_methods must reflect what the "
+            "author explicitly offers (Telegram, WhatsApp, or calling). Return only the "
+            "requested structured result."
         )
         user_prompt = (
             f"Local message time: {message_date.isoformat()}\n"
@@ -201,10 +217,10 @@ class OpenRouterRideParser:
             raise OpenRouterParserError(
                 "OpenRouter returned an invalid structured response"
             ) from error
-        return self._validate_result(result, local_hint.phone)
+        return self._validate_result(result, local_hint)
 
     @staticmethod
-    def _validate_result(result: object, phone: str | None) -> ParsedMessage:
+    def _validate_result(result: object, local_hint: ParsedMessage) -> ParsedMessage:
         if not isinstance(result, dict):
             raise OpenRouterParserError("OpenRouter result is not an object")
         kind = result.get("kind")
@@ -232,6 +248,17 @@ class OpenRouterRideParser:
             else 0.5
         )
         confidence = round(max(0.0, min(confidence, 0.99)), 2)
+        price_value = result.get("price")
+        price = price_value if isinstance(price_value, int) and price_value >= 0 else None
+        currency_value = result.get("currency")
+        currency = currency_value if currency_value in {"TJS", "UZS"} else None
+        raw_methods = result.get("contact_methods")
+        methods = [
+            str(method)
+            for method in raw_methods
+            if method in {"telegram", "whatsapp", "phone"}
+        ] if isinstance(raw_methods, list) else []
+        methods.extend(local_hint.contact_methods)
 
         return ParsedMessage(
             kind=str(kind),
@@ -242,6 +269,9 @@ class OpenRouterRideParser:
             depart_time=depart_time,
             date_precision=str(precision),
             seats=seats,
-            phone=phone,
+            phone=local_hint.phone,
             confidence=confidence,
+            price=price if price is not None else local_hint.price,
+            currency=currency if currency is not None else local_hint.currency,
+            contact_methods=tuple(dict.fromkeys(methods)),
         )
