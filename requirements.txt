@@ -1,1 +1,1 @@
--r telegram_collector/requirements.txt
+Telethon==1.44.0
