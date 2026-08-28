@@ -77,6 +77,30 @@ def _nullable_text(value: object) -> str | None:
     return cleaned or None
 
 
+def _http_error_message(error: urllib.error.HTTPError) -> str:
+    """Return the useful Google API error without exposing request data or keys."""
+    base = f"Gemini returned HTTP {error.code}"
+    try:
+        body = json.loads(error.read(8192).decode("utf-8", errors="replace"))
+    except (OSError, TypeError, ValueError):
+        return base
+    finally:
+        error.close()
+    api_error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(api_error, dict):
+        return base
+    status = api_error.get("status")
+    message = api_error.get("message")
+    details = [
+        re.sub(r"\s+", " ", value).strip()
+        for value in (status, message)
+        if isinstance(value, str) and value.strip()
+    ]
+    if not details:
+        return base
+    return f"{base}: {' — '.join(details)[:500]}"
+
+
 class GeminiRideParser:
     def __init__(
         self,
@@ -150,7 +174,7 @@ class GeminiRideParser:
             with self._opener(request, timeout=self._timeout_seconds) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
-            raise GeminiParserError(f"Gemini returned HTTP {error.code}") from error
+            raise GeminiParserError(_http_error_message(error)) from error
         except (OSError, TimeoutError, json.JSONDecodeError) as error:
             raise GeminiParserError("Gemini request failed") from error
 

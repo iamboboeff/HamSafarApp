@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 import unittest
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -11,7 +13,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classifier import classify_message  # noqa: E402
-from gemini_parser import GeminiRideParser  # noqa: E402
+from gemini_parser import GeminiParserError, GeminiRideParser  # noqa: E402
 
 
 NOW = datetime(2026, 8, 28, 8, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
@@ -87,6 +89,35 @@ class GeminiRideParserTest(unittest.TestCase):
         self.assertEqual(parsed.to_city, "Ташкент")
         self.assertEqual(parsed.phone, "+998941317805")
         self.assertEqual(parsed.seats, 3)
+
+    def test_http_error_includes_safe_google_reason(self) -> None:
+        def opener(request: object, *, timeout: int) -> _FakeResponse:
+            del request, timeout
+            body = json.dumps(
+                {
+                    "error": {
+                        "code": 400,
+                        "status": "FAILED_PRECONDITION",
+                        "message": "User location is not supported for the API use.",
+                    }
+                }
+            ).encode("utf-8")
+            raise urllib.error.HTTPError(
+                "https://generativelanguage.googleapis.com/",
+                400,
+                "Bad Request",
+                hdrs=None,
+                fp=io.BytesIO(body),
+            )
+
+        parser = GeminiRideParser(api_key="test-key", opener=opener)
+        local = classify_message("Худжанд Душанбе", NOW)
+
+        with self.assertRaisesRegex(
+            GeminiParserError,
+            "HTTP 400: FAILED_PRECONDITION.*User location is not supported",
+        ):
+            parser.classify("Худжанд Душанбе", NOW, local)
 
 
 if __name__ == "__main__":
