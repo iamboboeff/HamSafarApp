@@ -15,7 +15,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from classifier import ParsedMessage, classify_message
-from gemini_parser import GeminiRideParser
+from openrouter_parser import OpenRouterRideParser
 from storage import MessageStorage
 
 
@@ -47,8 +47,8 @@ class Config:
     admin_user_ids: frozenset[int]
     test_reply_mode: bool
     timezone_name: str
-    gemini_api_key: str | None
-    gemini_model: str
+    openrouter_api_key: str | None
+    openrouter_models: tuple[str, ...]
     llm_mode: str
 
     @classmethod
@@ -64,14 +64,26 @@ class Config:
             )
         local_data = Path(__file__).resolve().parent / "data"
         default_data = Path("/app/data") if Path("/app/data").is_dir() else local_data
-        gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip() or None
+        openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip() or None
         llm_mode = os.getenv(
-            "LLM_MODE", "always" if gemini_api_key else "off"
+            "LLM_MODE", "always" if openrouter_api_key else "off"
         ).strip().lower()
         if llm_mode not in {"off", "always", "fallback"}:
             raise RuntimeError("LLM_MODE must be off, always, or fallback")
-        if llm_mode != "off" and not gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY is required when LLM_MODE is enabled")
+        if llm_mode != "off" and not openrouter_api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY is required when LLM_MODE is enabled"
+            )
+        model_list = os.getenv(
+            "OPENROUTER_MODELS",
+            "nvidia/nemotron-3-super-120b-a12b:free,"
+            "z-ai/glm-5.2:free,openrouter/free",
+        )
+        openrouter_models = tuple(
+            model.strip() for model in model_list.split(",") if model.strip()
+        )
+        if not openrouter_models:
+            raise RuntimeError("OPENROUTER_MODELS must contain at least one model")
         return cls(
             token=token,
             data_dir=Path(os.getenv("DATA_DIR", str(default_data))),
@@ -79,8 +91,8 @@ class Config:
             admin_user_ids=_int_set_env("ADMIN_USER_IDS"),
             test_reply_mode=_bool_env("TEST_REPLY_MODE", True),
             timezone_name=os.getenv("SOURCE_TIMEZONE", "Asia/Dushanbe"),
-            gemini_api_key=gemini_api_key,
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.7-flash"),
+            openrouter_api_key=openrouter_api_key,
+            openrouter_models=openrouter_models,
             llm_mode=llm_mode,
         )
 
@@ -134,7 +146,11 @@ class TelegramAPI:
 
 
 def _format_result(parsed: ParsedMessage, parser_name: str) -> str:
-    heading = "🤖 ИИ-разбор Gemini" if parser_name == "gemini" else "🧪 Локальный разбор"
+    heading = (
+        "🤖 ИИ-разбор OpenRouter"
+        if parser_name == "openrouter"
+        else "🧪 Локальный разбор"
+    )
     if parsed.kind == "not_a_ride":
         return (
             f"{heading}: не похоже на объявление о поездке.\n"
@@ -164,12 +180,12 @@ class Collector:
         self._api = TelegramAPI(config.token)
         self._storage = MessageStorage(config.data_dir / "telegram_collector.sqlite3")
         self._timezone = ZoneInfo(config.timezone_name)
-        self._gemini = (
-            GeminiRideParser(
-                api_key=config.gemini_api_key,
-                model=config.gemini_model,
+        self._ai = (
+            OpenRouterRideParser(
+                api_key=config.openrouter_api_key,
+                models=config.openrouter_models,
             )
-            if config.gemini_api_key and config.llm_mode != "off"
+            if config.openrouter_api_key and config.llm_mode != "off"
             else None
         )
         self._running = True
@@ -206,7 +222,7 @@ class Collector:
                 f"Запросы пассажиров: {stats['request']}\n"
                 f"Не объявления: {stats['not_a_ride']}\n"
                 f"Тестовые ответы: {'включены' if self._config.test_reply_mode else 'выключены'}\n"
-                f"Парсер: {self._gemini.model if self._gemini else 'локальные правила'}"
+                f"Парсер: {self._ai.model if self._ai else 'локальные правила'}"
             )
         else:
             reply = (
@@ -220,7 +236,7 @@ class Collector:
 
     def _classify(self, text: str, message_date: datetime) -> tuple[ParsedMessage, str]:
         local = classify_message(text, message_date)
-        if self._gemini is None:
+        if self._ai is None:
             return local, "local"
         if (
             self._config.llm_mode == "fallback"
@@ -229,9 +245,9 @@ class Collector:
         ):
             return local, "local"
         try:
-            return self._gemini.classify(text, message_date, local), "gemini"
+            return self._ai.classify(text, message_date, local), "openrouter"
         except Exception as error:
-            LOGGER.warning("Gemini parsing failed; using local fallback: %s", error)
+            LOGGER.warning("OpenRouter parsing failed; using local fallback: %s", error)
             return local, "local"
 
     def handle_update(self, update: dict[str, Any]) -> None:
