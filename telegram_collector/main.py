@@ -80,7 +80,7 @@ class Config:
             test_reply_mode=_bool_env("TEST_REPLY_MODE", True),
             timezone_name=os.getenv("SOURCE_TIMEZONE", "Asia/Dushanbe"),
             gemini_api_key=gemini_api_key,
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.7-flash"),
             llm_mode=llm_mode,
         )
 

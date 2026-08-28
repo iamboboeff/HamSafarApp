@@ -82,7 +82,7 @@ class GeminiRideParser:
         self,
         *,
         api_key: str,
-        model: str = "gemini-2.5-flash-lite",
+        model: str = "gemini-3.7-flash",
         timeout_seconds: int = 15,
         opener: Callable[..., Any] = urllib.request.urlopen,
     ) -> None:
@@ -126,9 +126,13 @@ class GeminiRideParser:
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseJsonSchema": _RESPONSE_SCHEMA,
+                "thinkingConfig": {"thinkingLevel": "low"},
+                "responseFormat": {
+                    "text": {
+                        "mimeType": "application/json",
+                        "schema": _RESPONSE_SCHEMA,
+                    }
+                },
             },
         }
         model = urllib.parse.quote(self._model, safe="._-")

@@ -69,12 +69,20 @@ class GeminiRideParserTest(unittest.TestCase):
         request = captured["request"]
         body = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
         sent_prompt = body["contents"][0]["parts"][0]["text"]
+        self.assertIn(
+            "/v1beta/models/gemini-3.7-flash:generateContent",
+            request.full_url,  # type: ignore[attr-defined]
+        )
         self.assertNotIn("+998941317805", sent_prompt)
         self.assertIn("[PHONE]", sent_prompt)
         self.assertEqual(
-            body["generationConfig"]["responseMimeType"], "application/json"
+            body["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low"
         )
-        self.assertIn("responseJsonSchema", body["generationConfig"])
+        response_text = body["generationConfig"]["responseFormat"]["text"]
+        self.assertEqual(response_text["mimeType"], "application/json")
+        self.assertEqual(response_text["schema"]["type"], "object")
+        self.assertIn("kind", response_text["schema"]["required"])
+        self.assertNotIn("temperature", body["generationConfig"])
         self.assertEqual(parsed.from_city, "Бешарык")
         self.assertEqual(parsed.to_city, "Ташкент")
         self.assertEqual(parsed.phone, "+998941317805")
