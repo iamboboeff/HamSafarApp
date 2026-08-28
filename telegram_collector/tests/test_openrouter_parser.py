@@ -21,8 +21,8 @@ from openrouter_parser import (  # noqa: E402
 
 NOW = datetime(2026, 8, 28, 8, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
 MODELS = (
-    "nvidia/nemotron-3-super-120b-a12b:free",
     "z-ai/glm-5.2:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
     "openrouter/free",
 )
 
@@ -61,7 +61,7 @@ class OpenRouterRideParserTest(unittest.TestCase):
             captured["request"] = request
             return _FakeResponse(
                 {
-                    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+                    "model": "z-ai/glm-5.2:free",
                     "choices": [
                         {
                             "message": {
@@ -106,6 +106,92 @@ class OpenRouterRideParserTest(unittest.TestCase):
         self.assertEqual(parsed.phone, "+998941317805")
         self.assertEqual(parsed.seats, 3)
         self.assertEqual(parser.last_model, MODELS[0])
+
+    def test_accepts_fenced_json_from_text_part_response(self) -> None:
+        model_result = {
+            "kind": "request",
+            "cargo": False,
+            "from_city": "Худжанд",
+            "to_city": "Душанбе",
+            "depart_date": None,
+            "depart_time": None,
+            "date_precision": "unknown",
+            "seats": 2,
+            "price": None,
+            "currency": None,
+            "contact_methods": ["telegram"],
+            "confidence": 0.91,
+        }
+
+        def opener(request: object, *, timeout: int) -> _FakeResponse:
+            del request, timeout
+            return _FakeResponse(
+                {
+                    "model": MODELS[0],
+                    "choices": [
+                        {
+                            "message": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "```json\n"
+                                        + json.dumps(model_result)
+                                        + "\n```",
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                }
+            )
+
+        text = "2 нафар аз Хучанд ба Душанбе даркор"
+        local = classify_message(text, NOW)
+        parsed = OpenRouterRideParser(
+            api_key="test-key",
+            models=MODELS,
+            opener=opener,
+        ).classify(text, NOW, local)
+
+        self.assertEqual(parsed.kind, "request")
+        self.assertEqual(parsed.from_city, "Худжанд")
+        self.assertEqual(parsed.to_city, "Душанбе")
+
+    def test_accepts_message_parsed_object(self) -> None:
+        model_result = {
+            "kind": "offer",
+            "cargo": False,
+            "from_city": "Ойбек",
+            "to_city": "Ташкент",
+            "depart_date": None,
+            "depart_time": None,
+            "date_precision": "unknown",
+            "seats": 4,
+            "price": None,
+            "currency": None,
+            "contact_methods": ["phone"],
+            "confidence": 0.94,
+        }
+
+        def opener(request: object, *, timeout: int) -> _FakeResponse:
+            del request, timeout
+            return _FakeResponse(
+                {
+                    "model": MODELS[0],
+                    "choices": [{"message": {"content": None, "parsed": model_result}}],
+                }
+            )
+
+        text = "Ойбекдан Тошкентга 4 та жой бор"
+        local = classify_message(text, NOW)
+        parsed = OpenRouterRideParser(
+            api_key="test-key",
+            models=MODELS,
+            opener=opener,
+        ).classify(text, NOW, local)
+
+        self.assertEqual(parsed.from_city, "Ойбек")
+        self.assertEqual(parsed.to_city, "Ташкент")
 
     def test_http_error_includes_safe_openrouter_reason(self) -> None:
         def opener(request: object, *, timeout: int) -> _FakeResponse:

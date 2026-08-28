@@ -83,6 +83,68 @@ def _nullable_text(value: object) -> str | None:
     return cleaned or None
 
 
+def _decode_structured_result(body: object) -> tuple[dict[str, Any], str | None]:
+    """Accept the response shapes used by different OpenRouter providers."""
+    if not isinstance(body, dict):
+        raise OpenRouterParserError("OpenRouter response is not an object")
+    model = _nullable_text(body.get("model"))
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise OpenRouterParserError("OpenRouter response has no choices")
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        raise OpenRouterParserError("OpenRouter choice is invalid")
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        raise OpenRouterParserError("OpenRouter message is invalid")
+
+    parsed = message.get("parsed")
+    if isinstance(parsed, dict):
+        return parsed, model
+
+    content = message.get("content")
+    if isinstance(content, dict):
+        return content, model
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                chunks.append(part)
+            elif isinstance(part, dict):
+                for key in ("text", "content"):
+                    value = part.get(key)
+                    if isinstance(value, str):
+                        chunks.append(value)
+                        break
+        content = "\n".join(chunks)
+    if not isinstance(content, str) or not content.strip():
+        raise OpenRouterParserError("OpenRouter message has no structured content")
+
+    text = content.strip()
+    fence = re.fullmatch(
+        r"```(?:json)?\s*(.*?)\s*```",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        # Reasoning-capable free models sometimes add a short sentence before
+        # the JSON object despite a structured-output request.
+        start = text.find("{")
+        if start < 0:
+            raise OpenRouterParserError("OpenRouter content contains no JSON object")
+        try:
+            decoded, _ = json.JSONDecoder().raw_decode(text[start:])
+        except json.JSONDecodeError as error:
+            raise OpenRouterParserError("OpenRouter content contains invalid JSON") from error
+    if not isinstance(decoded, dict):
+        raise OpenRouterParserError("OpenRouter result is not an object")
+    return decoded, model
+
+
 def _http_error_message(error: urllib.error.HTTPError) -> str:
     """Return useful OpenRouter error fields without exposing request data or keys."""
     base = f"OpenRouter returned HTTP {error.code}"
@@ -209,14 +271,7 @@ class OpenRouterRideParser:
         except (OSError, TimeoutError, json.JSONDecodeError) as error:
             raise OpenRouterParserError("OpenRouter request failed") from error
 
-        try:
-            self._last_model = _nullable_text(body.get("model"))
-            raw_json = body["choices"][0]["message"]["content"]
-            result = json.loads(raw_json)
-        except (AttributeError, KeyError, IndexError, TypeError, json.JSONDecodeError) as error:
-            raise OpenRouterParserError(
-                "OpenRouter returned an invalid structured response"
-            ) from error
+        result, self._last_model = _decode_structured_result(body)
         return self._validate_result(result, local_hint)
 
     @staticmethod

@@ -78,8 +78,8 @@ class Config:
             )
         model_list = os.getenv(
             "OPENROUTER_MODELS",
-            "nvidia/nemotron-3-super-120b-a12b:free,"
-            "z-ai/glm-5.2:free,openrouter/free",
+            "z-ai/glm-5.2:free,"
+            "nvidia/nemotron-3-super-120b-a12b:free,openrouter/free",
         )
         openrouter_models = tuple(
             model.strip() for model in model_list.split(",") if model.strip()
