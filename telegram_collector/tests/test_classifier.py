@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from classifier import classify_message  # noqa: E402
+
+
+NOW = datetime(2026, 8, 17, 18, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
+
+
+class ClassifierTest(unittest.TestCase):
+    def test_reference_messages(self) -> None:
+        cases = [
+            ("Mengami uka", "not_a_ride", False),
+            (
+                "Салом алейкум. Нужен такси Ташкент - Ойбек, есть 1 пассажир. Метро Минор.",
+                "request",
+                False,
+            ),
+            ("990190966", "not_a_ride", False),
+            ("+998950373299 телефон килинг", "not_a_ride", False),
+            (
+                "душанбе мерафтагиҳо ҳастиянми срочно пасилка ҳаст",
+                "request",
+                True,
+            ),
+            (
+                "Салом аллейкум пагох то соати 10:00 аз самти Хучанд ба Душанбе "
+                "меравам 4 нафар лозим бор поссылька бошадам мебарам занг занед 552421001",
+                "offer",
+                True,
+            ),
+            ("олинди", "not_a_ride", False),
+            ("250 ками", "not_a_ride", False),
+        ]
+        for text, expected_kind, expected_cargo in cases:
+            with self.subTest(text=text):
+                parsed = classify_message(text, NOW)
+                self.assertEqual(parsed.kind, expected_kind)
+                self.assertEqual(parsed.cargo, expected_cargo)
+
+    def test_complete_tajik_offer(self) -> None:
+        parsed = classify_message(
+            "пагох то соати 10:00 аз самти Хучанд ба Душанбе меравам "
+            "4 нафар лозим, занг занед 552421001",
+            NOW,
+        )
+        self.assertEqual(parsed.kind, "offer")
+        self.assertEqual(parsed.from_city, "Худжанд")
+        self.assertEqual(parsed.to_city, "Душанбе")
+        self.assertEqual(parsed.depart_date, "2026-08-18")
+        self.assertEqual(parsed.depart_time, "10:00")
+        self.assertEqual(parsed.seats, 4)
+        self.assertEqual(parsed.phone, "552421001")
+
+    def test_bare_phone_is_not_a_ride(self) -> None:
+        parsed = classify_message("+998931861414 tel qiling", NOW)
+        self.assertEqual(parsed.kind, "not_a_ride")
+        self.assertEqual(parsed.phone, "+998931861414")
+
+
+if __name__ == "__main__":
+    unittest.main()
+

@@ -46,3 +46,10 @@ app.*.map.json
 
 # Backup originals of processed assets (not needed in the repo).
 *.png.original
+
+# HamSafar Telegram collector secrets and runtime data.
+telegram_collector/.env
+telegram_collector/data/
+telegram_collector/*.session
+telegram_collector/*.session-journal
+**/__pycache__/
