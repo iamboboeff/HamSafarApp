@@ -15,6 +15,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from classifier import ParsedMessage, classify_message
+from gemini_parser import GeminiRideParser
 from storage import MessageStorage
 
 
@@ -46,6 +47,9 @@ class Config:
     admin_user_ids: frozenset[int]
     test_reply_mode: bool
     timezone_name: str
+    gemini_api_key: str | None
+    gemini_model: str
+    llm_mode: str
 
     @classmethod
     def from_environment(cls) -> "Config":
@@ -60,6 +64,14 @@ class Config:
             )
         local_data = Path(__file__).resolve().parent / "data"
         default_data = Path("/app/data") if Path("/app/data").is_dir() else local_data
+        gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip() or None
+        llm_mode = os.getenv(
+            "LLM_MODE", "always" if gemini_api_key else "off"
+        ).strip().lower()
+        if llm_mode not in {"off", "always", "fallback"}:
+            raise RuntimeError("LLM_MODE must be off, always, or fallback")
+        if llm_mode != "off" and not gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY is required when LLM_MODE is enabled")
         return cls(
             token=token,
             data_dir=Path(os.getenv("DATA_DIR", str(default_data))),
@@ -67,6 +79,9 @@ class Config:
             admin_user_ids=_int_set_env("ADMIN_USER_IDS"),
             test_reply_mode=_bool_env("TEST_REPLY_MODE", True),
             timezone_name=os.getenv("SOURCE_TIMEZONE", "Asia/Dushanbe"),
+            gemini_api_key=gemini_api_key,
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+            llm_mode=llm_mode,
         )
 
 
@@ -118,17 +133,18 @@ class TelegramAPI:
         self.call("sendMessage", payload)
 
 
-def _format_result(parsed: ParsedMessage) -> str:
+def _format_result(parsed: ParsedMessage, parser_name: str) -> str:
+    heading = "🤖 ИИ-разбор Gemini" if parser_name == "gemini" else "🧪 Локальный разбор"
     if parsed.kind == "not_a_ride":
         return (
-            "🗑 Тестовый разбор: не похоже на объявление о поездке.\n"
+            f"{heading}: не похоже на объявление о поездке.\n"
             f"Уверенность: {round(parsed.confidence * 100)}%\n"
             "Пока ничего не публикуется в HamSafar."
         )
     labels = {"offer": "водитель предлагает поездку", "request": "ищут поездку"}
     route = f"{parsed.from_city or 'неизвестно'} → {parsed.to_city or 'неизвестно'}"
     details = [
-        "🧪 Тестовый разбор",
+        heading,
         f"Тип: {labels[parsed.kind]}",
         f"Маршрут: {route}",
         f"Дата: {parsed.depart_date or 'не указана'}",
@@ -148,6 +164,14 @@ class Collector:
         self._api = TelegramAPI(config.token)
         self._storage = MessageStorage(config.data_dir / "telegram_collector.sqlite3")
         self._timezone = ZoneInfo(config.timezone_name)
+        self._gemini = (
+            GeminiRideParser(
+                api_key=config.gemini_api_key,
+                model=config.gemini_model,
+            )
+            if config.gemini_api_key and config.llm_mode != "off"
+            else None
+        )
         self._running = True
 
     def stop(self, *_: object) -> None:
@@ -181,7 +205,8 @@ class Collector:
                 f"Предложения водителей: {stats['offer']}\n"
                 f"Запросы пассажиров: {stats['request']}\n"
                 f"Не объявления: {stats['not_a_ride']}\n"
-                f"Тестовые ответы: {'включены' if self._config.test_reply_mode else 'выключены'}"
+                f"Тестовые ответы: {'включены' if self._config.test_reply_mode else 'выключены'}\n"
+                f"Парсер: {self._gemini.model if self._gemini else 'локальные правила'}"
             )
         else:
             reply = (
@@ -192,6 +217,22 @@ class Collector:
             )
         self._api.send_message(chat_id, reply, message.get("message_id"))
         return True
+
+    def _classify(self, text: str, message_date: datetime) -> tuple[ParsedMessage, str]:
+        local = classify_message(text, message_date)
+        if self._gemini is None:
+            return local, "local"
+        if (
+            self._config.llm_mode == "fallback"
+            and local.kind != "not_a_ride"
+            and local.confidence >= 0.85
+        ):
+            return local, "local"
+        try:
+            return self._gemini.classify(text, message_date, local), "gemini"
+        except Exception as error:
+            LOGGER.warning("Gemini parsing failed; using local fallback: %s", error)
+            return local, "local"
 
     def handle_update(self, update: dict[str, Any]) -> None:
         update_id = int(update["update_id"])
@@ -224,7 +265,7 @@ class Collector:
         message_date = datetime.fromtimestamp(unix_date, tz=timezone.utc).astimezone(
             self._timezone
         )
-        parsed = classify_message(text, message_date)
+        parsed, parser_name = self._classify(text, message_date)
         is_new = self._storage.save_message(
             update_id=update_id,
             message=message,
@@ -233,16 +274,17 @@ class Collector:
             is_edited=is_edited,
         )
         LOGGER.info(
-            "Stored chat=%s message=%s kind=%s confidence=%.2f",
+            "Stored chat=%s message=%s parser=%s kind=%s confidence=%.2f",
             chat_id,
             message.get("message_id"),
+            parser_name,
             parsed.kind,
             parsed.confidence,
         )
         if self._config.test_reply_mode and (is_new or is_edited):
             self._api.send_message(
                 chat_id,
-                _format_result(parsed),
+                _format_result(parsed, parser_name),
                 message.get("message_id"),
             )
 
@@ -285,4 +327,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
