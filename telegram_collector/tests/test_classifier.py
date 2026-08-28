@@ -60,6 +60,19 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(parsed.seats, 4)
         self.assertEqual(parsed.phone, "552421001")
 
+    def test_colloquial_tajik_offer_with_kas(self) -> None:
+        parsed = classify_message(
+            "А Душанбе Худжанд мерам 4 кас даркор мошин сонг "
+            "+92 760 80 20 соати 13:00",
+            NOW,
+        )
+        self.assertEqual(parsed.kind, "offer")
+        self.assertEqual(parsed.from_city, "Душанбе")
+        self.assertEqual(parsed.to_city, "Худжанд")
+        self.assertEqual(parsed.seats, 4)
+        self.assertEqual(parsed.depart_time, "13:00")
+        self.assertEqual(parsed.phone, "+927608020")
+
     def test_bare_phone_is_not_a_ride(self) -> None:
         parsed = classify_message("+998931861414 tel qiling", NOW)
         self.assertEqual(parsed.kind, "not_a_ride")

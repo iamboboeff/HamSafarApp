@@ -21,8 +21,8 @@ from openrouter_parser import (  # noqa: E402
 
 NOW = datetime(2026, 8, 28, 8, 0, tzinfo=ZoneInfo("Asia/Dushanbe"))
 MODELS = (
+    "dots-studio/dots-3-note-preview:free",
     "z-ai/glm-5.2:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
     "openrouter/free",
 )
 
@@ -61,7 +61,7 @@ class OpenRouterRideParserTest(unittest.TestCase):
             captured["request"] = request
             return _FakeResponse(
                 {
-                    "model": "z-ai/glm-5.2:free",
+                    "model": MODELS[0],
                     "choices": [
                         {
                             "message": {
@@ -95,9 +95,10 @@ class OpenRouterRideParserTest(unittest.TestCase):
         )
         self.assertNotIn("+998941317805", sent_prompt)
         self.assertIn("[PHONE]", sent_prompt)
-        self.assertEqual(body["models"], list(MODELS))
+        self.assertEqual(body["model"], MODELS[0])
         self.assertTrue(body["provider"]["require_parameters"])
-        self.assertEqual(body["reasoning"]["effort"], "low")
+        self.assertEqual(body["reasoning"]["effort"], "none")
+        self.assertEqual(body["max_tokens"], 1600)
         response_format = body["response_format"]
         self.assertEqual(response_format["type"], "json_schema")
         self.assertTrue(response_format["json_schema"]["strict"])
@@ -114,7 +115,7 @@ class OpenRouterRideParserTest(unittest.TestCase):
             "from_city": "Худжанд",
             "to_city": "Душанбе",
             "depart_date": None,
-            "depart_time": None,
+            "depart_time": "13:00:00+05:00",
             "date_precision": "unknown",
             "seats": 2,
             "price": None,
@@ -156,6 +157,7 @@ class OpenRouterRideParserTest(unittest.TestCase):
         self.assertEqual(parsed.kind, "request")
         self.assertEqual(parsed.from_city, "Худжанд")
         self.assertEqual(parsed.to_city, "Душанбе")
+        self.assertEqual(parsed.depart_time, "13:00")
 
     def test_accepts_message_parsed_object(self) -> None:
         model_result = {
@@ -224,6 +226,51 @@ class OpenRouterRideParserTest(unittest.TestCase):
             "HTTP 429: 429.*Rate limit exceeded",
         ):
             parser.classify("Худжанд Душанбе", NOW, local)
+
+    def test_retries_next_model_for_http_200_error_envelope(self) -> None:
+        attempts: list[str] = []
+        model_result = {
+            "kind": "offer",
+            "cargo": False,
+            "from_city": "Душанбе",
+            "to_city": "Худжанд",
+            "depart_date": None,
+            "depart_time": "13:00",
+            "date_precision": "unknown",
+            "seats": 4,
+            "price": None,
+            "currency": None,
+            "contact_methods": ["phone"],
+            "confidence": 0.95,
+        }
+
+        def opener(request: object, *, timeout: int) -> _FakeResponse:
+            del timeout
+            body = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+            attempts.append(body["model"])
+            if len(attempts) == 1:
+                return _FakeResponse(
+                    {"error": {"code": 502, "message": "Upstream unavailable"}}
+                )
+            return _FakeResponse(
+                {
+                    "model": MODELS[1],
+                    "choices": [{"message": {"content": json.dumps(model_result)}}],
+                }
+            )
+
+        text = "Душанбе Худжанд мерам 4 кас даркор"
+        local = classify_message(text, NOW)
+        parser = OpenRouterRideParser(
+            api_key="test-key",
+            models=MODELS,
+            opener=opener,
+        )
+        parsed = parser.classify(text, NOW, local)
+
+        self.assertEqual(attempts, list(MODELS[:2]))
+        self.assertEqual(parsed.kind, "offer")
+        self.assertEqual(parser.last_model, MODELS[1])
 
 
 if __name__ == "__main__":

@@ -169,6 +169,22 @@ def _http_error_message(error: urllib.error.HTTPError) -> str:
     return f"{base}: {' — '.join(details)[:500]}"
 
 
+def _response_error_message(body: object) -> str | None:
+    """Read OpenRouter's occasional HTTP-200 error envelope safely."""
+    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
+        return None
+    api_error = body["error"]
+    code = api_error.get("code")
+    message = api_error.get("message")
+    details = []
+    if isinstance(code, (str, int)):
+        details.append(str(code))
+    if isinstance(message, str) and message.strip():
+        details.append(re.sub(r"\s+", " ", message).strip())
+    suffix = f": {' — '.join(details)[:500]}" if details else ""
+    return "OpenRouter returned an error response" + suffix
+
+
 class OpenRouterRideParser:
     def __init__(
         self,
@@ -221,11 +237,16 @@ class OpenRouterRideParser:
             "border checkpoints as valid route endpoints. Normalize known place names to "
             "conventional Russian Cyrillic (for example Тошкент→Ташкент, Кукон→Коканд, "
             "Бешарик→Бешарык). Relative dates are resolved against the supplied local "
-            "message time. [PHONE] means a phone number was removed for privacy. Return "
+            "message time. [PHONE] means a phone number was removed for privacy. "
             "Extract a stated per-seat or whole-trip price only when explicit, with TJS "
             "for somoni and UZS for Uzbek so'm. contact_methods must reflect what the "
             "author explicitly offers (Telegram, WhatsApp, or calling). Return only the "
-            "requested structured result."
+            "requested structured result. If the author says they are going, mentions "
+            "their own car or car model, and asks for people/passengers, classify it as "
+            "offer even if the literal wording says people are needed. A question about "
+            "whether a taxi group or service exists is not_a_ride. A lost item, debt, "
+            "collateral, complaint, search for a person, or request for a taxi phone "
+            "number is not_a_ride even when route names appear."
         )
         user_prompt = (
             f"Local message time: {message_date.isoformat()}\n"
@@ -233,7 +254,6 @@ class OpenRouterRideParser:
             f"<message>\n{redacted}\n</message>"
         )
         payload: dict[str, Any] = {
-            "models": list(self._models),
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -247,32 +267,44 @@ class OpenRouterRideParser:
                 },
             },
             "provider": {"require_parameters": True},
-            "reasoning": {"effort": "low", "exclude": True},
+            "reasoning": {"effort": "none", "exclude": True},
             "temperature": 0.1,
-            "max_tokens": 900,
+            "max_tokens": 1600,
             "stream": False,
         }
-        request = urllib.request.Request(
-            "https://openrouter.ai/api/v1/chat/completions",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://hamsafar.app",
-                "X-OpenRouter-Title": "HamSafar Telegram Collector",
-            },
-            method="POST",
-        )
-        try:
-            with self._opener(request, timeout=self._timeout_seconds) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            raise OpenRouterParserError(_http_error_message(error)) from error
-        except (OSError, TimeoutError, json.JSONDecodeError) as error:
-            raise OpenRouterParserError("OpenRouter request failed") from error
-
-        result, self._last_model = _decode_structured_result(body)
-        return self._validate_result(result, local_hint)
+        errors: list[OpenRouterParserError] = []
+        for model in self._models:
+            payload["model"] = model
+            request = urllib.request.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://hamsafar.app",
+                    "X-OpenRouter-Title": "HamSafar Telegram Collector",
+                },
+                method="POST",
+            )
+            try:
+                with self._opener(request, timeout=self._timeout_seconds) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                response_error = _response_error_message(body)
+                if response_error:
+                    raise OpenRouterParserError(response_error)
+                result, returned_model = _decode_structured_result(body)
+                parsed = self._validate_result(result, local_hint)
+                self._last_model = returned_model or model
+                return parsed
+            except urllib.error.HTTPError as error:
+                errors.append(OpenRouterParserError(_http_error_message(error)))
+            except OpenRouterParserError as error:
+                errors.append(error)
+            except (OSError, TimeoutError, json.JSONDecodeError) as error:
+                errors.append(OpenRouterParserError("OpenRouter request failed"))
+        if errors:
+            raise errors[-1]
+        raise OpenRouterParserError("OpenRouter model chain is empty")
 
     @staticmethod
     def _validate_result(result: object, local_hint: ParsedMessage) -> ParsedMessage:
@@ -291,7 +323,12 @@ class OpenRouterRideParser:
             precision = "unknown"
         depart_time = _nullable_text(result.get("depart_time"))
         if depart_time and not _TIME_RE.fullmatch(depart_time):
-            depart_time = None
+            try:
+                depart_time = datetime.fromisoformat(
+                    "2000-01-01T" + depart_time
+                ).strftime("%H:%M")
+            except ValueError:
+                depart_time = None
         seats_value = result.get("seats")
         seats = seats_value if isinstance(seats_value, int) else None
         if seats is not None and not 1 <= seats <= 20:

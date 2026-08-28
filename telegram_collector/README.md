@@ -32,7 +32,7 @@ python3 main.py
 ```
 
 Для ИИ-разбора дополнительно задайте `OPENROUTER_API_KEY`. По умолчанию модели
-пробуются в порядке `Nemotron 3 Super free` → `GLM 5.2 free` →
+пробуются по одной в порядке `Dots3 Note free` → `GLM 5.2 free` →
 `openrouter/free`; цепочку можно сменить через `OPENROUTER_MODELS`. Телефонные
 номера удаляются из текста до отправки в OpenRouter и добавляются в результат
 локально.
