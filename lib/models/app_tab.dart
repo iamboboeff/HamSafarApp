@@ -21,7 +21,8 @@ enum AppTab {
 /// Ported from `HomeListingSection` in `AppPreferencesDomain.swift`.
 enum HomeListingSection {
   rides('Поездки'),
-  passengers('Пассажиры');
+  passengers('Пассажиры'),
+  telegram('Из Telegram');
 
   const HomeListingSection(this.title);
   final String title;

@@ -37,6 +37,14 @@ class SearchModeTabs extends StatelessWidget {
             onTap: () => onSelect(HomeListingSection.passengers),
           ),
         ),
+        Expanded(
+          child: _TabItem(
+            title: tr('Из Telegram'),
+            icon: Icons.send_outlined,
+            isSelected: selection == HomeListingSection.telegram,
+            onTap: () => onSelect(HomeListingSection.telegram),
+          ),
+        ),
       ],
     );
   }

@@ -10,13 +10,16 @@ import '../../models/app_tab.dart';
 import '../../models/passenger_request.dart';
 import '../../models/ride.dart';
 import '../../models/ride_alert.dart';
+import '../../models/telegram_ride_lead.dart';
 import '../../state/app_state.dart';
+import '../../state/telegram_leads_state.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../theme/app_text.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/passenger_request_card.dart';
 import '../../widgets/ride_card.dart';
+import '../../widgets/telegram_ride_card.dart';
 import '../auth/auth_screen.dart';
 import '../home/widgets/date_picker_sheet.dart';
 import '../home/widgets/search_card.dart' show showPassengersPickerSheet;
@@ -95,6 +98,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     final search = searchState.search;
     final hasSelectedDate = searchState.hasSelectedDate;
     final marketplace = ref.watch(marketplaceProvider);
+    final telegramState = ref.watch(telegramLeadsProvider);
     final bookedTrips = ref.watch(bookedTripsProvider);
     final isCurrentUser = ref.watch(isCurrentUserProvider);
     final section = ref.watch(selectedHomeSectionProvider);
@@ -143,9 +147,27 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
               .toList()
         : displayedRequests;
 
-    final dateSourceDates = section == HomeListingSection.rides
-        ? rideMatches.map((r) => r.departureDate).toList()
-        : passengerMatches.map((r) => r.departureDate).toList();
+    final telegramMatches = (from == null || to == null)
+        ? telegramState.items
+        : telegramState.items
+              .where((lead) => lead.matchesRoute(from, to))
+              .toList();
+    final filteredTelegram = hasSelectedDate
+        ? telegramMatches
+              .where(
+                (lead) => DateUtilsX.isSameDay(lead.groupingDate, search.date),
+              )
+              .toList()
+        : telegramMatches;
+
+    final dateSourceDates = switch (section) {
+      HomeListingSection.rides =>
+        rideMatches.map((r) => r.departureDate).toList(),
+      HomeListingSection.passengers =>
+        passengerMatches.map((r) => r.departureDate).toList(),
+      HomeListingSection.telegram =>
+        telegramMatches.map((lead) => lead.groupingDate).toList(),
+    };
     final dateOptions = groupedDateOptions(
       dates: dateSourceDates,
       selectedDate: search.date,
@@ -173,8 +195,12 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 child: NotificationListener<ScrollEndNotification>(
                   onNotification: _snapHeader,
                   child: RefreshIndicator(
-                    onRefresh: () =>
+                    onRefresh: () async {
+                      await Future.wait([
                         ref.read(marketplaceProvider.notifier).refresh(),
+                        ref.read(telegramLeadsProvider.notifier).refresh(),
+                      ]);
+                    },
                     child: CustomScrollView(
                       controller: _scrollController,
                       physics: const AlwaysScrollableScrollPhysics(
@@ -270,10 +296,18 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                           sliver: SliverList(
                             delegate: SliverChildListDelegate([
-                              if (section == HomeListingSection.rides)
-                                ..._buildRideResults(filteredRides)
-                              else
-                                ..._buildRequestResults(filteredRequests),
+                              ...switch (section) {
+                                HomeListingSection.rides => _buildRideResults(
+                                  filteredRides,
+                                ),
+                                HomeListingSection.passengers =>
+                                  _buildRequestResults(filteredRequests),
+                                HomeListingSection.telegram =>
+                                  _buildTelegramResults(
+                                    filteredTelegram,
+                                    telegramState,
+                                  ),
+                              },
                             ]),
                           ),
                         ),
@@ -340,6 +374,78 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
         ],
       ],
     ];
+  }
+
+  List<Widget> _buildTelegramResults(
+    List<TelegramRideLead> leads,
+    TelegramLeadsState telegramState,
+  ) {
+    if (leads.isEmpty) {
+      if (telegramState.hasLoadFailed) {
+        return [
+          _telegramSafetyBanner(),
+          const SizedBox(height: 12),
+          _emptyText(
+            tr(
+              'Не удалось загрузить объявления из Telegram. Проверьте подключение к интернету.',
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryFilledButton(
+            label: tr('Повторить'),
+            isLoading: telegramState.isLoading,
+            onPressed: () => ref.read(telegramLeadsProvider.notifier).refresh(),
+          ),
+        ];
+      }
+      return [
+        _telegramSafetyBanner(),
+        const SizedBox(height: 12),
+        _emptyText(tr('По этому маршруту пока нет объявлений из Telegram.')),
+      ];
+    }
+    final groups = _groupByDay(leads, (lead) => lead.groupingDate);
+    return [
+      _telegramSafetyBanner(),
+      const SizedBox(height: 14),
+      for (final group in groups) ...[
+        _DaySectionHeader(date: group.date),
+        for (final lead in group.items) ...[
+          TelegramRideCard(lead: lead),
+          const SizedBox(height: 12),
+        ],
+      ],
+    ];
+  }
+
+  Widget _telegramSafetyBanner() {
+    final hs = context.hs;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: hs.orange.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: hs.orange.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 20, color: hs.orange),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              tr(
+                'Объявления из открытых источников. HamSafar их не проверяет, бронирование недоступно — связывайтесь напрямую.',
+              ),
+              style: HSText.caption.copyWith(
+                color: context.secondaryText,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _emptyText(String text) {
