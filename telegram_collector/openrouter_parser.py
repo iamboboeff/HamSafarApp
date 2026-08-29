@@ -267,7 +267,10 @@ class OpenRouterRideParser:
                 },
             },
             "provider": {"require_parameters": True},
-            "reasoning": {"effort": "none", "exclude": True},
+            # Some current free endpoints require reasoning and reject
+            # effort="none". Low effort keeps the request inexpensive while
+            # excluding the private reasoning trace from the response.
+            "reasoning": {"effort": "low", "exclude": True},
             "temperature": 0.1,
             "max_tokens": 1600,
             "stream": False,

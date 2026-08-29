@@ -97,7 +97,8 @@ class OpenRouterRideParserTest(unittest.TestCase):
         self.assertIn("[PHONE]", sent_prompt)
         self.assertEqual(body["model"], MODELS[0])
         self.assertTrue(body["provider"]["require_parameters"])
-        self.assertEqual(body["reasoning"]["effort"], "none")
+        self.assertEqual(body["reasoning"]["effort"], "low")
+        self.assertTrue(body["reasoning"]["exclude"])
         self.assertEqual(body["max_tokens"], 1600)
         response_format = body["response_format"]
         self.assertEqual(response_format["type"], "json_schema")
