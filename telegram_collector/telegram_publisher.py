@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -67,7 +68,12 @@ class SupabaseTelegramLeadWriter:
         self._timeout_seconds = timeout_seconds
         self._opener = opener
 
-    def upsert(self, payload: dict[str, Any]) -> None:
+    def upsert(
+        self,
+        payload: dict[str, Any],
+        *,
+        merge_duplicates: bool = True,
+    ) -> None:
         request = urllib.request.Request(
             self._url
             + "/rest/v1/telegram_ride_leads?on_conflict=source_batch_key",
@@ -76,7 +82,11 @@ class SupabaseTelegramLeadWriter:
                 "apikey": self._service_role_key,
                 "Authorization": f"Bearer {self._service_role_key}",
                 "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=minimal",
+                "Prefer": (
+                    "resolution=merge-duplicates,return=minimal"
+                    if merge_duplicates
+                    else "resolution=ignore-duplicates,return=minimal"
+                ),
             },
             method="POST",
         )
@@ -183,11 +193,31 @@ class TelegramLeadPipeline:
 
         first = ordered[0]
         last = ordered[-1]
-        author_key = first.sender_id if first.sender_id is not None else "anonymous"
-        batch_key = (
-            f"{first.source_chat_id}:{author_key}:"
-            f"{first.source_message_id}:{last.source_message_id}"
-        )
+        # A content fingerprint deduplicates the same original listing when it
+        # reaches us through both the automatic user forwarder and a manual
+        # forward into the collector group. Bot API forwards from users do not
+        # expose the original chat/message ID, but preserve author and date.
+        fingerprint_input = {
+            "author": first.sender_id
+            if first.sender_id is not None
+            else (first.sender_name or "anonymous").casefold(),
+            "messages": [
+                {
+                    "sent_at": message.sent_at.astimezone(timezone.utc).isoformat(),
+                    "text": " ".join(message.text.split()).casefold(),
+                }
+                for message in ordered
+            ],
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                fingerprint_input,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        batch_key = f"v2:{digest}"
         original_url = telegram_message_url(first)
         expires_at = self._expires_at(parsed, last.sent_at)
         payload: dict[str, Any] = {
@@ -220,8 +250,16 @@ class TelegramLeadPipeline:
         }
         return PreparedTelegramLead(payload=payload, parsed=parsed)
 
-    def publish(self, prepared: PreparedTelegramLead) -> None:
-        self._writer.upsert(prepared.payload)
+    def publish(
+        self,
+        prepared: PreparedTelegramLead,
+        *,
+        merge_duplicates: bool = True,
+    ) -> None:
+        self._writer.upsert(
+            prepared.payload,
+            merge_duplicates=merge_duplicates,
+        )
 
     def _expires_at(self, parsed: ParsedMessage, source_sent_at: datetime) -> datetime:
         if parsed.depart_date:

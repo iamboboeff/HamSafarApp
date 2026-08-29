@@ -16,10 +16,15 @@ from telegram_publisher import (  # noqa: E402
 
 class _FakeWriter:
     def __init__(self) -> None:
-        self.payloads: list[dict[str, object]] = []
+        self.calls: list[tuple[dict[str, object], bool]] = []
 
-    def upsert(self, payload: dict[str, object]) -> None:
-        self.payloads.append(payload)
+    def upsert(
+        self,
+        payload: dict[str, object],
+        *,
+        merge_duplicates: bool = True,
+    ) -> None:
+        self.calls.append((payload, merge_duplicates))
 
 
 class TelegramLeadPipelineTest(unittest.TestCase):
@@ -71,7 +76,48 @@ class TelegramLeadPipelineTest(unittest.TestCase):
         )
 
         pipeline.publish(prepared)
-        self.assertEqual(writer.payloads, [prepared.payload])
+        self.assertEqual(writer.calls, [(prepared.payload, True)])
+
+    def test_content_fingerprint_deduplicates_automatic_and_manual_paths(self) -> None:
+        pipeline = TelegramLeadPipeline(
+            writer=_FakeWriter(),  # type: ignore[arg-type]
+            timezone_name="Asia/Dushanbe",
+            ai=None,
+        )
+        sent_at = datetime(2026, 8, 28, 8, tzinfo=timezone.utc)
+        automatic = TelegramBatchMessage(
+            source_chat_id=-100123,
+            source_chat_title="Original taxi chat",
+            source_chat_username="original_chat",
+            source_message_id=15,
+            sender_id=42,
+            sender_name="Driver",
+            sender_username="driver42",
+            sent_at=sent_at,
+            text="Душанбе Худжанд мерам 4 кас",
+        )
+        manual = TelegramBatchMessage(
+            source_chat_id=-5496071500,
+            source_chat_title="Такси HamSafar",
+            source_chat_username=None,
+            source_message_id=63,
+            sender_id=42,
+            sender_name="Driver",
+            sender_username="driver42",
+            sent_at=sent_at,
+            text="  Душанбе   Худжанд МЕРАМ 4 КАС  ",
+        )
+
+        automatic_prepared = pipeline.prepare([automatic])
+        manual_prepared = pipeline.prepare([manual])
+
+        self.assertIsNotNone(automatic_prepared)
+        self.assertIsNotNone(manual_prepared)
+        assert automatic_prepared is not None and manual_prepared is not None
+        self.assertEqual(
+            automatic_prepared.payload["source_batch_key"],
+            manual_prepared.payload["source_batch_key"],
+        )
 
     def test_rejects_obvious_non_ride_batch(self) -> None:
         pipeline = TelegramLeadPipeline(

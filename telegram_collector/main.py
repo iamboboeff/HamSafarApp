@@ -15,6 +15,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from classifier import ParsedMessage, classify_message
+from manual_forwarder import ManualForwardBatcher
 from openrouter_parser import OpenRouterRideParser
 from storage import MessageStorage
 from telegram_publisher import TelegramLeadPipeline
@@ -52,6 +53,8 @@ class Config:
     openrouter_api_key: str | None
     openrouter_models: tuple[str, ...]
     llm_mode: str
+    manual_forward_chat_ids: frozenset[int]
+    manual_batch_window_seconds: float
 
     @classmethod
     def from_environment(cls) -> "Config":
@@ -86,6 +89,31 @@ class Config:
         )
         if not openrouter_models:
             raise RuntimeError("OPENROUTER_MODELS must contain at least one model")
+        manual_forward_chat_ids = _int_set_env("MANUAL_FORWARD_CHAT_IDS")
+        if not manual_forward_chat_ids:
+            target_chat_id = os.getenv("USERBOT_TARGET_CHAT_ID", "").strip()
+            if target_chat_id:
+                try:
+                    manual_forward_chat_ids = frozenset({int(target_chat_id)})
+                except ValueError as error:
+                    raise RuntimeError(
+                        "USERBOT_TARGET_CHAT_ID must be an integer"
+                    ) from error
+        try:
+            manual_batch_window_seconds = float(
+                os.getenv(
+                    "MANUAL_FORWARD_BATCH_WINDOW_SECONDS",
+                    os.getenv("USERBOT_BATCH_WINDOW_SECONDS", "120"),
+                )
+            )
+        except ValueError as error:
+            raise RuntimeError(
+                "MANUAL_FORWARD_BATCH_WINDOW_SECONDS must be a number"
+            ) from error
+        if not 1 <= manual_batch_window_seconds <= 900:
+            raise RuntimeError(
+                "MANUAL_FORWARD_BATCH_WINDOW_SECONDS must be between 1 and 900"
+            )
         return cls(
             token=token,
             data_dir=Path(os.getenv("DATA_DIR", str(default_data))),
@@ -96,6 +124,8 @@ class Config:
             openrouter_api_key=openrouter_api_key,
             openrouter_models=openrouter_models,
             llm_mode=llm_mode,
+            manual_forward_chat_ids=manual_forward_chat_ids,
+            manual_batch_window_seconds=manual_batch_window_seconds,
         )
 
 
@@ -177,7 +207,11 @@ def _format_result(parsed: ParsedMessage, parser_name: str) -> str:
 
 
 class Collector:
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        pipeline: TelegramLeadPipeline | None = None,
+    ) -> None:
         self._config = config
         self._api = TelegramAPI(config.token)
         self._storage = MessageStorage(config.data_dir / "telegram_collector.sqlite3")
@@ -188,6 +222,15 @@ class Collector:
                 models=config.openrouter_models,
             )
             if config.openrouter_api_key and config.llm_mode != "off"
+            else None
+        )
+        self._manual_batcher = (
+            ManualForwardBatcher(
+                data_dir=config.data_dir,
+                pipeline=pipeline,
+                batch_window_seconds=config.manual_batch_window_seconds,
+            )
+            if pipeline is not None and config.manual_forward_chat_ids
             else None
         )
         self._running = True
@@ -283,6 +326,13 @@ class Collector:
         message_date = datetime.fromtimestamp(unix_date, tz=timezone.utc).astimezone(
             self._timezone
         )
+        if (
+            not is_edited
+            and self._manual_batcher is not None
+            and chat_id in self._config.manual_forward_chat_ids
+            and self._manual_batcher.enqueue(message, text)
+        ):
+            return
         parsed, parser_name = self._classify(text, message_date)
         is_new = self._storage.save_message(
             update_id=update_id,
@@ -314,7 +364,11 @@ class Collector:
         failure_delay = 1
         while self._running:
             try:
+                if self._manual_batcher is not None:
+                    self._manual_batcher.flush_due()
                 for update in self._api.get_updates(offset):
+                    if self._manual_batcher is not None:
+                        self._manual_batcher.flush_due()
                     update_id = int(update["update_id"])
                     self.handle_update(update)
                     self._storage.set_last_update_id(update_id)
@@ -325,6 +379,10 @@ class Collector:
                 time.sleep(failure_delay)
                 failure_delay = min(failure_delay * 2, 30)
 
+    def close(self) -> None:
+        if self._manual_batcher is not None:
+            self._manual_batcher.close()
+
 
 def main() -> int:
     logging.basicConfig(
@@ -333,15 +391,20 @@ def main() -> int:
     )
     try:
         config = Config.from_environment()
-        collector = Collector(config)
+        collector_pipeline = TelegramLeadPipeline.from_environment(
+            timezone_name=config.timezone_name,
+            openrouter_api_key=config.openrouter_api_key,
+            openrouter_models=config.openrouter_models,
+        )
+        collector = Collector(config, pipeline=collector_pipeline)
         forwarder = None
         if _bool_env("USERBOT_ENABLED", False):
-            pipeline = TelegramLeadPipeline.from_environment(
+            forwarder_pipeline = TelegramLeadPipeline.from_environment(
                 timezone_name=config.timezone_name,
                 openrouter_api_key=config.openrouter_api_key,
                 openrouter_models=config.openrouter_models,
             )
-            if pipeline is None:
+            if forwarder_pipeline is None:
                 LOGGER.warning(
                     "Telegram user forwarder is paused: set "
                     "TELEGRAM_PUBLISH_ENABLED=true after the Supabase table "
@@ -350,7 +413,7 @@ def main() -> int:
             else:
                 forwarder = TelegramUserForwarder(
                     UserForwarderConfig.from_environment(config.data_dir),
-                    pipeline=pipeline,
+                    pipeline=forwarder_pipeline,
                 )
                 forwarder.start()
     except Exception as error:
@@ -368,6 +431,7 @@ def main() -> int:
         collector.run()
     finally:
         stop_services()
+        collector.close()
         if forwarder is not None:
             forwarder.join()
     return 0
