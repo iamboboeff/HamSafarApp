@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 
@@ -137,6 +138,65 @@ class TelegramLeadPipelineTest(unittest.TestCase):
             text="Всем доброе утро",
         )
         self.assertIsNone(pipeline.prepare([message]))
+
+    @staticmethod
+    def _pipeline() -> TelegramLeadPipeline:
+        return TelegramLeadPipeline(
+            writer=_FakeWriter(),  # type: ignore[arg-type]
+            timezone_name="Asia/Dushanbe",
+            ai=None,
+        )
+
+    @staticmethod
+    def _message(*, sender_id: int | None, sender_username: str | None, text: str) -> TelegramBatchMessage:
+        return TelegramBatchMessage(
+            source_chat_id=-1001,
+            source_chat_title="Taxi",
+            source_chat_username=None,
+            source_message_id=1,
+            sender_id=sender_id,
+            sender_name=None if sender_id is None else "Driver",
+            sender_username=sender_username,
+            sent_at=datetime(2026, 8, 28, 8, tzinfo=timezone.utc),
+            text=text,
+        )
+
+    def test_skips_a_listing_nobody_can_answer(self) -> None:
+        """No handle and no phone means every button in the app is missing."""
+        unreachable = self._message(
+            sender_id=None,
+            sender_username=None,
+            text="Душанбе Худжанд 4 нафар",
+        )
+        self.assertIsNone(self._pipeline().prepare([unreachable]))
+
+        # The same text from an author the app can deep-link is published.
+        reachable = self._message(
+            sender_id=None,
+            sender_username="driver42",
+            text="Душанбе Худжанд 4 нафар",
+        )
+        self.assertIsNotNone(self._pipeline().prepare([reachable]))
+
+    def test_a_listing_without_a_date_dies_with_the_day_it_was_written(self) -> None:
+        """Such a post always means today, and most listings are written that way."""
+        prepared = self._pipeline().prepare(
+            [
+                self._message(
+                    sender_id=42,
+                    sender_username="driver42",
+                    text="Душанбе Худжанд 4 нафар даркор",
+                )
+            ]
+        )
+        assert prepared is not None
+        self.assertEqual(prepared.parsed.date_precision, "unknown")
+        expires = datetime.fromisoformat(str(prepared.payload["expires_at"]))
+        local = expires.astimezone(ZoneInfo("Asia/Dushanbe"))
+        # Posted 2026-08-28 13:00 Dushanbe time — gone at the end of that day,
+        # not two days later as the flat rule used to give it.
+        self.assertEqual(local.date(), date(2026, 8, 28))
+        self.assertEqual((local.hour, local.minute), (23, 59))
 
 
 if __name__ == "__main__":

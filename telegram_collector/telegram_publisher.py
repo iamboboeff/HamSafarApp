@@ -7,7 +7,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo
 
@@ -193,6 +193,20 @@ class TelegramLeadPipeline:
 
         first = ordered[0]
         last = ordered[-1]
+        # A listing nobody can answer is a dead end in the app: the text shows,
+        # but every button would be missing. Publishing it only pads the feed,
+        # so a lead needs at least one way back to its author — a Telegram
+        # handle the app can deep-link, or a phone number.
+        reachable = bool(
+            first.sender_username or first.sender_id is not None or parsed.phone
+        )
+        if not reachable:
+            LOGGER.info(
+                "Skipping Telegram lead %s -> %s: no contact to reach the author",
+                parsed.from_city,
+                parsed.to_city,
+            )
+            return None
         # A content fingerprint deduplicates the same original listing when it
         # reaches us through both the automatic user forwarder and a manual
         # forward into the collector group. Bot API forwards from users do not
@@ -262,16 +276,26 @@ class TelegramLeadPipeline:
         )
 
     def _expires_at(self, parsed: ParsedMessage, source_sent_at: datetime) -> datetime:
+        """When the listing stops being worth showing.
+
+        Tied to the ride, not to the post. The old rule gave every listing a
+        flat two days from publication regardless of when the car actually
+        left, so yesterday's rides were still in the feed the next morning.
+
+        A listing with no date at all is the common case — "4 нафар даркор
+        Душанбе - Худжанд" — and it always means today, so it dies with the day
+        it was written. `TelegramRideLead.expiresAt` in the Flutter app mirrors
+        this for rows written before the rule existed.
+        """
+        local_sent = source_sent_at.astimezone(self._timezone)
+        if parsed.date_precision == "fuzzy":
+            return self._end_of_day(local_sent.date() + timedelta(days=1))
         if parsed.depart_date:
             try:
-                date_value = datetime.fromisoformat(parsed.depart_date).date()
-                time_value = (
-                    time.fromisoformat(parsed.depart_time)
-                    if parsed.depart_time
-                    else time(23, 59)
-                )
-                departure = datetime.combine(date_value, time_value, self._timezone)
-                return max(departure + timedelta(hours=8), source_sent_at + timedelta(hours=12))
+                return self._end_of_day(datetime.fromisoformat(parsed.depart_date).date())
             except ValueError:
                 pass
-        return source_sent_at + timedelta(days=2)
+        return self._end_of_day(local_sent.date())
+
+    def _end_of_day(self, day: date) -> datetime:
+        return datetime.combine(day, time(23, 59, 59), self._timezone)
