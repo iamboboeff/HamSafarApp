@@ -84,7 +84,10 @@ telegram_collector/.venv/bin/python telegram_collector/user_session_tool.py list
 
 После команды `list`:
 
-1. записать ID разрешённых исходных групп в `USERBOT_SOURCE_CHAT_IDS`;
+1. записать ID или публичные `@username` разрешённых исходных групп в
+   `USERBOT_SOURCE_CHAT_IDS` через запятую (например,
+   `-1001234567890,@yakkasada1`); одна форум-группа автоматически охватывает
+   все её темы, а сообщения разных тем не объединяются в один ИИ-пакет;
 2. записать ID группы «Такси HamSafar» в `USERBOT_TARGET_CHAT_ID`;
 3. добавить `USERBOT_API_ID`, `USERBOT_API_HASH` и содержимое session-файла
    только в скрытые переменные Bothost;

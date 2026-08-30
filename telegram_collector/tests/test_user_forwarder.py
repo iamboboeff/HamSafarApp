@@ -10,7 +10,9 @@ from unittest.mock import patch
 from user_forwarder import (
     ForwardedMessageStore,
     UserForwarderConfig,
+    _message_topic_id,
     _parse_chat_ids,
+    _parse_source_chats,
 )
 from telegram_publisher import TelegramBatchMessage
 
@@ -29,6 +31,35 @@ class ParseChatIdsTest(unittest.TestCase):
             _parse_chat_ids("-1001,group", "CHATS")
 
 
+class ParseSourceChatsTest(unittest.TestCase):
+    def test_parses_ids_usernames_and_public_links(self) -> None:
+        self.assertEqual(
+            _parse_source_chats(
+                "-1001, @Yakkasada1, https://t.me/yakkasada1", "CHATS"
+            ),
+            (-1001, "@yakkasada1"),
+        )
+
+    def test_rejects_invalid_reference(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _parse_source_chats("https://example.com/group", "CHATS")
+
+
+class MessageTopicIdTest(unittest.TestCase):
+    def test_reads_forum_topic_from_reply_header(self) -> None:
+        reply = type(
+            "ReplyHeader",
+            (),
+            {"reply_to_top_id": 42, "forum_topic": True, "reply_to_msg_id": 42},
+        )()
+        message = type("Message", (), {"reply_to": reply})()
+        self.assertEqual(_message_topic_id(message), 42)
+
+    def test_general_chat_message_has_no_topic(self) -> None:
+        message = type("Message", (), {"reply_to": None})()
+        self.assertIsNone(_message_topic_id(message))
+
+
 class UserForwarderConfigTest(unittest.TestCase):
     def test_loads_safe_configuration(self) -> None:
         environment = {
@@ -42,6 +73,7 @@ class UserForwarderConfigTest(unittest.TestCase):
         with patch.dict(os.environ, environment, clear=True):
             config = UserForwarderConfig.from_environment(Path("/tmp/data"))
         self.assertEqual(config.api_id, 123)
+        self.assertEqual(config.source_chats, (-1001, -1002))
         self.assertEqual(config.target_chat_id, -1003)
         self.assertEqual(config.forward_delay_seconds, 2.5)
 
@@ -56,6 +88,18 @@ class UserForwarderConfigTest(unittest.TestCase):
         with patch.dict(os.environ, environment, clear=True):
             with self.assertRaises(RuntimeError):
                 UserForwarderConfig.from_environment(Path("/tmp/data"))
+
+    def test_accepts_public_source_username(self) -> None:
+        environment = {
+            "USERBOT_API_ID": "123",
+            "USERBOT_API_HASH": "secret",
+            "USERBOT_SESSION": "session",
+            "USERBOT_SOURCE_CHAT_IDS": "-1001,@Yakkasada1",
+            "USERBOT_TARGET_CHAT_ID": "-1003",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            config = UserForwarderConfig.from_environment(Path("/tmp/data"))
+        self.assertEqual(config.source_chats, (-1001, "@yakkasada1"))
 
 
 class ForwardedMessageStoreTest(unittest.TestCase):

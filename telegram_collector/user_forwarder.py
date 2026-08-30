@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -29,12 +30,54 @@ def _parse_chat_ids(raw: str, variable_name: str) -> frozenset[int]:
         ) from error
 
 
+def _parse_source_chats(raw: str, variable_name: str) -> tuple[int | str, ...]:
+    values = [item.strip() for item in raw.split(",") if item.strip()]
+    if not values:
+        raise RuntimeError(
+            f"{variable_name} must contain at least one chat ID or public username"
+        )
+    parsed: list[int | str] = []
+    seen: set[int | str] = set()
+    for value in values:
+        try:
+            reference: int | str = int(value)
+        except ValueError:
+            username = re.sub(
+                r"^(?:https?://)?t\.me/", "", value, flags=re.IGNORECASE
+            ).strip("/@")
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", username):
+                raise RuntimeError(
+                    f"{variable_name} must contain comma-separated integer chat "
+                    "IDs or public Telegram usernames"
+                )
+            reference = f"@{username.lower()}"
+        if reference not in seen:
+            seen.add(reference)
+            parsed.append(reference)
+    return tuple(parsed)
+
+
+def _message_topic_id(message: Any) -> int | None:
+    direct = getattr(message, "reply_to_top_id", None)
+    if direct is not None:
+        return int(direct)
+    reply = getattr(message, "reply_to", None)
+    top_id = getattr(reply, "reply_to_top_id", None)
+    if top_id is not None:
+        return int(top_id)
+    if bool(getattr(reply, "forum_topic", False)):
+        reply_to_msg_id = getattr(reply, "reply_to_msg_id", None)
+        if reply_to_msg_id is not None:
+            return int(reply_to_msg_id)
+    return None
+
+
 @dataclass(frozen=True)
 class UserForwarderConfig:
     api_id: int
     api_hash: str
     session: str
-    source_chat_ids: frozenset[int]
+    source_chats: tuple[int | str, ...]
     target_chat_id: int
     data_dir: Path
     forward_delay_seconds: float = 1.0
@@ -69,10 +112,10 @@ class UserForwarderConfig:
             target_chat_id = int(required["USERBOT_TARGET_CHAT_ID"])
         except ValueError as error:
             raise RuntimeError("USERBOT_TARGET_CHAT_ID must be an integer") from error
-        source_chat_ids = _parse_chat_ids(
+        source_chats = _parse_source_chats(
             required["USERBOT_SOURCE_CHAT_IDS"], "USERBOT_SOURCE_CHAT_IDS"
         )
-        if target_chat_id in source_chat_ids:
+        if target_chat_id in source_chats:
             raise RuntimeError(
                 "USERBOT_TARGET_CHAT_ID cannot also be a source chat; this prevents loops"
             )
@@ -114,7 +157,7 @@ class UserForwarderConfig:
             api_id=api_id,
             api_hash=required["USERBOT_API_HASH"],
             session=required["USERBOT_SESSION"],
-            source_chat_ids=source_chat_ids,
+            source_chats=source_chats,
             target_chat_id=target_chat_id,
             data_dir=data_dir,
             forward_delay_seconds=delay,
@@ -350,7 +393,7 @@ class TelegramUserForwarder:
 
     async def _run(self) -> None:
         try:
-            from telethon import TelegramClient, events
+            from telethon import TelegramClient, events, utils
             from telethon.errors import ChatForwardsRestrictedError, RPCError
             from telethon.sessions import StringSession
         except ImportError as error:
@@ -369,7 +412,7 @@ class TelegramUserForwarder:
         )
         flush_lock = asyncio.Lock()
         batch_tasks: dict[str, asyncio.Task[None]] = {}
-        active_live_batches: dict[tuple[int, object], str] = {}
+        active_live_batches: dict[tuple[int, int | str, object], str] = {}
         try:
             await client.connect()
             if not await client.is_user_authorized():
@@ -380,8 +423,27 @@ class TelegramUserForwarder:
             # StringSession stores authorization, not a persistent entity cache.
             # Loading dialogs once makes the numeric target ID resolvable after
             # every fresh container deployment.
-            await client.get_dialogs(limit=None)
+            dialogs = await client.get_dialogs(limit=None)
+            dialog_chat_ids = {
+                int(utils.get_peer_id(dialog.entity)) for dialog in dialogs
+            }
             target = await client.get_input_entity(self._config.target_chat_id)
+            source_entities: dict[int, Any] = {}
+            for source_reference in self._config.source_chats:
+                source = await client.get_entity(source_reference)
+                source_chat_id = int(utils.get_peer_id(source))
+                if source_chat_id == self._config.target_chat_id:
+                    raise RuntimeError(
+                        "USERBOT_TARGET_CHAT_ID cannot also be a source chat; "
+                        "this prevents loops"
+                    )
+                if source_chat_id not in dialog_chat_ids:
+                    raise RuntimeError(
+                        "The Telegram userbot account must join source chat "
+                        f"{source_reference} before it can receive live messages"
+                    )
+                source_entities[source_chat_id] = source
+            source_chat_ids = frozenset(source_entities)
 
             async def schedule_batch(batch_key: str, delay: float) -> None:
                 existing = batch_tasks.get(batch_key)
@@ -492,7 +554,7 @@ class TelegramUserForwarder:
                 schedule_delay: float | None = None,
             ) -> str | None:
                 source_chat_id = int(getattr(message, "chat_id", 0) or 0)
-                if source_chat_id not in self._config.source_chat_ids:
+                if source_chat_id not in source_chat_ids:
                     return None
                 if bool(getattr(chat, "noforwards", False)):
                     LOGGER.warning(
@@ -510,12 +572,14 @@ class TelegramUserForwarder:
                 sender_id_raw = getattr(message, "sender_id", None)
                 sender_id = int(sender_id_raw) if sender_id_raw is not None else None
                 sender_key = sender_id if sender_id is not None else "anonymous"
+                topic_key = _message_topic_id(message) or "general"
                 if batch_key is None:
-                    live_key = (source_chat_id, sender_key)
+                    live_key = (source_chat_id, topic_key, sender_key)
                     effective_batch_key = active_live_batches.get(live_key)
                     if effective_batch_key is None:
                         effective_batch_key = (
-                            f"live:{source_chat_id}:{sender_key}:{source_message_id}"
+                            f"live:{source_chat_id}:{topic_key}:{sender_key}:"
+                            f"{source_message_id}"
                         )
                         active_live_batches[live_key] = effective_batch_key
                 else:
@@ -557,7 +621,7 @@ class TelegramUserForwarder:
                 if event.chat_id is None:
                     return
                 source_chat_id = int(event.chat_id)
-                if source_chat_id not in self._config.source_chat_ids:
+                if source_chat_id not in source_chat_ids:
                     return
                 if source_chat_id == self._config.target_chat_id:
                     return
@@ -574,9 +638,9 @@ class TelegramUserForwarder:
                     microsecond=0,
                 ).astimezone(timezone.utc)
                 queued_batches: list[str] = []
-                for source_chat_id in sorted(self._config.source_chat_ids):
+                for source_chat_id in sorted(source_chat_ids):
                     try:
-                        source = await client.get_entity(source_chat_id)
+                        source = source_entities[source_chat_id]
                         history: list[Any] = []
                         async for message in client.iter_messages(
                             source,
@@ -594,7 +658,9 @@ class TelegramUserForwarder:
                             if str(getattr(message, "raw_text", "") or "").strip():
                                 history.append(message)
                         history.reverse()
-                        active_bursts: dict[object, tuple[datetime, str]] = {}
+                        active_bursts: dict[
+                            tuple[int | str, object], tuple[datetime, str]
+                        ] = {}
                         for message in history:
                             sender_raw = getattr(message, "sender_id", None)
                             sender_key: object = (
@@ -603,18 +669,21 @@ class TelegramUserForwarder:
                                 else "anonymous"
                             )
                             sent_at = message.date
-                            previous = active_bursts.get(sender_key)
+                            topic_key = _message_topic_id(message) or "general"
+                            burst_source_key = (topic_key, sender_key)
+                            previous = active_bursts.get(burst_source_key)
                             if (
                                 previous is None
                                 or sent_at - previous[0]
                                 > timedelta(seconds=self._config.batch_window_seconds)
                             ):
                                 burst_key = (
-                                    f"backfill:{source_chat_id}:{sender_key}:{message.id}"
+                                    f"backfill:{source_chat_id}:{topic_key}:"
+                                    f"{sender_key}:{message.id}"
                                 )
                             else:
                                 burst_key = previous[1]
-                            active_bursts[sender_key] = (sent_at, burst_key)
+                            active_bursts[burst_source_key] = (sent_at, burst_key)
                             queued = await queue_message(
                                 message,
                                 chat=source,
@@ -640,7 +709,7 @@ class TelegramUserForwarder:
             LOGGER.info(
                 "User forwarder connected as user_id=%s; sources=%s target=%s",
                 getattr(me, "id", "unknown"),
-                sorted(self._config.source_chat_ids),
+                sorted(source_chat_ids),
                 self._config.target_chat_id,
             )
             self._ready.set()
